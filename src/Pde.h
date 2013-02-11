@@ -25,11 +25,15 @@
 #ifndef PDE_H_
 #define PDE_H_
 
+struct MyTrilinosData;
 
 class Pde {
 public:
-	Pde();
+	Pde(const char* filename);
 	void integrate(const double dt);
+private:
+	MyTrilinosData data;
+	Teuchos::GlobalMPISession& mpiSession
 };
 
 
