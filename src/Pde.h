@@ -71,69 +71,92 @@ class Pde {
 	typedef Tpetra::MultiVector<ST, LO, GO, Node>  multivector_type;
 	typedef Tpetra::Vector<ST, LO, GO, Node>       vector_type;
 
+	typedef Tpetra::Map<LO, GO, Node>         map_type;
+	typedef Tpetra::Export<LO, GO, Node>      export_type;
+	typedef Tpetra::Import<LO, GO, Node>      import_type;
+	typedef Tpetra::CrsGraph<LO, GO, Node>    sparse_graph_type;
+
+	using Teuchos::RCP;
+	using Teuchos::rcp;
+
 public:
 	Pde(const char* filename);
+	~Pde() {
+		delete [] node_is_owned;
+		node_is_owned = NULL;
+	}
 	void integrate(const double dt);
-	//static void init();
+	static void init(int argc, char *argv[]);
 private:
-	RCP<sparse_matrix_type> A,B;
-	RCP<vector_type> X;
-	Teuchos::RCP<const Comm<int> > comm;
-	Teuchos::RCP<Node> node;
-
-	/** \brief  User-defined material tensor.
-
-	    \param  material    [out]   3 x 3 material tensor evaluated at (x,y,z)
-	    \param  x           [in]    x-coordinate of the evaluation point
-	    \param  y           [in]    y-coordinate of the evaluation point
-	    \param  z           [in]    z-coordinate of the evaluation point
-
-	    \warning Symmetric and positive definite tensor is required for every (x,y,z).
-	*/
-	template<typename Scalar>
-	void materialTensor (Scalar material[][3],
-	                const Scalar& x,
-	                const Scalar& y,
-	                const Scalar& z);
-
-	/** \brief Compute the material tensor at array of points in physical space.
-
-	    \param worksetMaterialValues      [out]     Rank-2, 3 or 4 array with dimensions (C,P), (C,P,D) or (C,P,D,D)
-	                                                with the values of the material tensor
-	    \param evaluationPoints           [in]      Rank-3 (C,P,D) array with the evaluation points in physical frame
-	*/
-	template<class ArrayOut, class ArrayIn>
-	void evaluateMaterialTensor (ArrayOut& worksetMaterialValues,
-	                        const ArrayIn& evaluationPoints);
-	/** \brief Computes source term: f
-
-	    \param  x          [in]    x-coordinate of the evaluation point
-	    \param  y          [in]    y-coordinate of the evaluation point
-	    \param  z          [in]    z-coordinate of the evaluation point
-
-	    \return Source term corresponding to the user-defined exact solution evaluated at (x,y,z)
+	/*
+	 * MPI
 	 */
+	int my_rank;
+	int num_procs;
+	RCP<const Teuchos::Comm<int> > comm;
+	RCP<Node> node;
+
+	/*
+	 * Maps, exporters etc.
+	 */
+	RCP<sparse_graph_type> overlappedGraph;
+	RCP<sparse_graph_type> ownedGraph;
+	RCP<const map_type> globalMapG;
+	RCP<const map_type> overlappedMapG;
+	RCP<const export_type> exporter;
+
+	/*
+	 * Matricies
+	 */
+	RCP<sparse_matrix_type> LHS,RHS;
+	RCP<vector_type> X,F;
+
+
+	/*
+	 * Mesh data
+	 */
+	const int spaceDim = 3;
+	Intrepid::FieldContainer<int> elem_to_node;
+	Intrepid::FieldContainer<ST> node_coord;
+	Teuchos::Array<long long> global_node_ids;
+	Teuchos::Array<int> BCNodes;
+	Intrepid::FieldContainer<int> node_on_boundary;
+	// nodeIsOwned must be a raw array, because std::vector<T> (and
+	// therefore Teuchos::Array<T>) has a specialization for T = bool
+	// that messes up the pointer type.
+	// TODO: delete this when class is deleted....
+	bool* node_is_owned;
+	shards::CellTopology cellType;
+
+	/*
+	 * Basis
+	 */
+	const int cubDegree = 2;
+	RCP<Intrepid::Cubature<ST> > cubature;
+	Intrepid::FieldContainer<ST> cubPoints;
+	Intrepid::FieldContainer<ST> cubWeights;
+	RCP<Intrepid::Basis<ST, Intrepid::FieldContainer<ST> > >  HGradBasis;
+	Intrepid::FieldContainer<ST> HGBValues;
+	Intrepid::FieldContainer<ST> HGBGrads;
+
+	void setup_pamgen_mesh(const std::string& meshInput);
+	void create_cubature_and_basis();
+	void build_maps_and_create_matrices();
+	void make_LHS_and_RHS();
+
+
 	template<typename Scalar>
-	const Scalar sourceTerm (Scalar& x, Scalar& y, Scalar& z);
+	void materialTensor (Scalar material[][3],const Scalar& x,const Scalar& y,const Scalar& z);
 
-	void
-	makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
-	                            Teuchos::RCP<vector_type>& B,
-	                            Teuchos::RCP<vector_type>& X_exact,
-	                            Teuchos::RCP<vector_type>& X,
-	                            const Teuchos::RCP<const Teuchos::Comm<int> >& comm,
-	                            const Teuchos::RCP<Node>& node,
-	                            const std::string& meshInput);
 
-	//! Just like above, but with multivector_type output arguments.
-	void
-	makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
-	                            Teuchos::RCP<multivector_type>& B,
-	                            Teuchos::RCP<multivector_type>& X_exact,
-	                            Teuchos::RCP<multivector_type>& X,
-	                            const Teuchos::RCP<const Teuchos::Comm<int> >& comm,
-	                            const Teuchos::RCP<Node>& node,
-	                            const std::string& meshInput);
+	template<class ArrayOut, class ArrayIn>
+	void evaluateMaterialTensor (ArrayOut& worksetMaterialValues,const ArrayIn& evaluationPoints);
+
+
+
+
+
+
 
 };
 

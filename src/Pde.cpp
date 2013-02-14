@@ -25,6 +25,7 @@
 #include "Pde.h"
 #include <iostream>
 #include "TrilinosRD.hpp"
+#include "Log.h"
 
 struct MyTrilinosData {
 	RCP<sparse_matrix_type> A;
@@ -46,90 +47,19 @@ Pde::Pde(const char* filename) {
 
 		inputMeshList.print (std::out, 2, true, true);
 		std::out << endl;
+		setup_mesh();
 
 	} else {
 		ERROR("unknown input filename to Pde class");
 	}
 
-	makeMatrixAndRightHandSide (data.A, data.B, data.X, comm, node, meshInput);
+	make_LHS_and_RHS (data.A, data.B, data.X, comm, node, meshInput);
 
 }
 
-void Pde::integrate(const double dt) {
-	std::cout << "integrating for "<<dt<<" seconds." << std::endl;
-	bool converged = false;
-	int numItersPerformed = 0;
-	const MT tol = STM::squareroot (STM::eps ());
-	const int maxNumIters = 100;
-	TrilinosRD::solveWithBelos (converged, numItersPerformed, tol, maxNumIters,
-			data.X, data.A, data.B, Teuchos::null, Teuchos::null);
-
-	// Summarize timings
-	Teuchos::RCP<ParameterList> reportParams = parameterList ("TimeMonitor::report");
-	reportParams->set ("Report format", std::string ("YAML"));
-	reportParams->set ("writeGlobalStats", true);
-	Teuchos::TimeMonitor::report (*out, reportParams);
-}
-
-void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
-		Teuchos::RCP<multivector_type>& B,
-		Teuchos::RCP<multivector_type>& X,
-		const Teuchos::RCP<const Teuchos::Comm<int> >& comm,
-		const Teuchos::RCP<Node>& node,
-		const std::string& meshInput)
-{
-	using Teuchos::RCP;
-	using Teuchos::rcp_implicit_cast;
-
-	RCP<vector_type> b, x;
-	makeMatrixAndRightHandSide (A, b, x, comm, node, meshInput);
-
-	B = rcp_implicit_cast<multivector_type> (b);
-	X = rcp_implicit_cast<multivector_type> (x);
-}
-
-void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
-		Teuchos::RCP<vector_type>& B,
-		Teuchos::RCP<vector_type>& X,
-		const Teuchos::RCP<const Teuchos::Comm<int> >& comm,
-		const Teuchos::RCP<Node>& node,
-		const std::string& meshInput)
-{
+void Pde::setup_pamgen_mesh(const std::string& meshInput){
 	using namespace Intrepid;
-	using Tpetra::global_size_t;
 	using Teuchos::Array;
-	using Teuchos::ArrayRCP;
-	using Teuchos::ArrayView;
-	using Teuchos::arrayView;
-	using Teuchos::as;
-	using Teuchos::outArg;
-	using Teuchos::ParameterList;
-	using Teuchos::RCP;
-	using Teuchos::rcp;
-	using Teuchos::TimeMonitor;
-	using std::endl;
-	typedef Teuchos::ArrayView<LO>::size_type size_type;
-	typedef Teuchos::ScalarTraits<ST> STS;
-
-
-
-	typedef Tpetra::Map<LO, GO, Node>         map_type;
-	typedef Tpetra::Export<LO, GO, Node>      export_type;
-	typedef Tpetra::Import<LO, GO, Node>      import_type;
-	typedef Tpetra::CrsGraph<LO, GO, Node>    sparse_graph_type;
-
-	// Number of independent variables fixed at 3
-	typedef Sacado::Fad::SFad<ST, 3>     Fad3;
-	typedef Intrepid::FunctionSpaceTools IntrepidFSTools;
-	typedef Intrepid::RealSpaceTools<ST> IntrepidRSTools;
-	typedef Intrepid::CellTools<ST>      IntrepidCTools;
-
-	const int numProcs = comm->getSize ();
-	const int myRank = comm->getRank ();
-
-	LOG(2,"makeMatrixAndRightHandSide:");
-	Teuchos::OSTab tab (std::out);
-
 	/**********************************************************************************/
 	/***************************** GET CELL TOPOLOGY **********************************/
 	/**********************************************************************************/
@@ -137,7 +67,7 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	LOG(2,"Getting cell topology");
 
 	// Get cell topology for base hexahedron
-	shards::CellTopology cellType (shards::getCellTopologyData<shards::Hexahedron<8> > ());
+	cellType = shards::CellTopology(shards::getCellTopologyData<shards::Hexahedron<8> > ());
 
 	// Get dimensions
 	int numNodesPerElem = cellType.getNodeCount();
@@ -160,7 +90,7 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 
 	// Generate mesh with Pamgen
 	long long maxInt = 9223372036854775807LL;
-	Create_Pamgen_Mesh (meshInput.c_str (), dim, myRank, numProcs, maxInt);
+	Create_Pamgen_Mesh (meshInput.c_str (), dim, my_rank, num_procs, maxInt);
 
 	std::string msg ("Poisson: ");
 
@@ -191,9 +121,9 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 
 
 	LOG(2,"Global number of elements:                     "
-				<< numElemsGlobal << std::endl
-				<< "Global number of nodes (incl. boundary nodes): "
-				<< numNodesGlobal);
+			<< numElemsGlobal << std::endl
+			<< "Global number of nodes (incl. boundary nodes): "
+			<< numNodesGlobal);
 
 
 	long long * block_ids = new long long [numElemBlk];
@@ -223,26 +153,26 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 
 	// Get node-element connectivity
 	int telct = 0;
-	FieldContainer<int> elemToNode(numElems,numNodesPerElem);
+	elem_to_node.resize(numElems,numNodesPerElem);
 	for (long long b = 0; b < numElemBlk; b++) {
 		for (long long el = 0; el < elements[b]; el++) {
 			for (int j = 0; j < numNodesPerElem; ++j) {
-				elemToNode(telct,j) = elmt_node_linkage[b][el*numNodesPerElem + j]-1;
+				elem_to_node(telct,j) = elmt_node_linkage[b][el*numNodesPerElem + j]-1;
 			}
 			++telct;
 		}
 	}
 
 	// Read node coordinates and place in field container
-	FieldContainer<ST> nodeCoord (numNodes, dim);
+	node_coord.resize(numNodes,dim);
 	ST * nodeCoordx = new ST [numNodes];
 	ST * nodeCoordy = new ST [numNodes];
 	ST * nodeCoordz = new ST [numNodes];
 	im_ex_get_coord_l (id, nodeCoordx, nodeCoordy, nodeCoordz);
 	for (int i=0; i<numNodes; i++) {
-		nodeCoord(i,0)=nodeCoordx[i];
-		nodeCoord(i,1)=nodeCoordy[i];
-		nodeCoord(i,2)=nodeCoordz[i];
+		node_coord(i,0)=nodeCoordx[i];
+		node_coord(i,1)=nodeCoordy[i];
+		node_coord(i,2)=nodeCoordz[i];
 	}
 	delete [] nodeCoordx;
 	delete [] nodeCoordy;
@@ -305,19 +235,17 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	//
 	// Calculate global node ids
 	//
-	Array<long long> globalNodeIds (numNodes);
-	// nodeIsOwned must be a raw array, because std::vector<T> (and
-	// therefore Teuchos::Array<T>) has a specialization for T = bool
-	// that messes up the pointer type.
-	bool* nodeIsOwned = new bool [numNodes];
-	calc_global_node_ids (globalNodeIds.getRawPtr (),
-			nodeIsOwned,
+	global_node_ids.resize(numNodes,0);
+
+	node_is_owned = new bool [numNodes];
+	calc_global_node_ids (global_node_ids.getRawPtr (),
+			node_is_owned,
 			numNodes,
 			num_node_comm_maps,
 			node_cmap_node_cnts,
 			node_comm_proc_ids,
 			comm_node_ids,
-			myRank);
+			my_rank);
 	//
 	// Mesh cleanup
 	//
@@ -355,7 +283,7 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	elements = NULL;
 
 	// Container indicating whether a node is on the boundary (1-yes 0-no)
-	FieldContainer<int> nodeOnBoundary (numNodes);
+	node_on_boundary.resize(numNodes);
 
 	// Get boundary (side set) information
 	long long * sideSetIds = new long long [numSideSets];
@@ -374,10 +302,10 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 				int sideNode2 = cellType.getNodeMap(2,sideSetSideList[j]-1,2);
 				int sideNode3 = cellType.getNodeMap(2,sideSetSideList[j]-1,3);
 
-				nodeOnBoundary(elemToNode(sideSetElemList[j]-1,sideNode0))=1;
-				nodeOnBoundary(elemToNode(sideSetElemList[j]-1,sideNode1))=1;
-				nodeOnBoundary(elemToNode(sideSetElemList[j]-1,sideNode2))=1;
-				nodeOnBoundary(elemToNode(sideSetElemList[j]-1,sideNode3))=1;
+				node_on_boundary(elem_to_node(sideSetElemList[j]-1,sideNode0))=1;
+				node_on_boundary(elem_to_node(sideSetElemList[j]-1,sideNode1))=1;
+				node_on_boundary(elem_to_node(sideSetElemList[j]-1,sideNode2))=1;
+				node_on_boundary(elem_to_node(sideSetElemList[j]-1,sideNode3))=1;
 			}
 			delete [] sideSetElemList;
 			delete [] sideSetSideList;
@@ -385,6 +313,36 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	}
 	delete [] sideSetIds;
 
+	int numBCNodes = 0;
+	for (int inode = 0; inode < numNodes; ++inode) {
+		if (node_on_boundary(inode) && node_is_owned[inode]) {
+			++numBCNodes;
+		}
+	}
+
+	BCNodes.resize(numBCNodes);
+	int indbc = 0;
+	int iOwned = 0;
+	for (int inode = 0; inode < numNodes; ++inode) {
+		if (node_is_owned[inode]) {
+			if (node_on_boundary (inode)) {
+				BCNodes[indbc]=iOwned;
+				++indbc;
+			} // if node inode is on the boundary
+			++iOwned;
+		} // if node inode is owned by my process
+	} // for each node inode that my process can see
+
+
+	//
+	// We're done with assembly, so we can delete the mesh.
+	//
+
+	Delete_Pamgen_Mesh ();
+}
+
+void Pde::create_cubature_and_basis() {
+	using namespace Intrepid;
 	/**********************************************************************************/
 	/********************************* GET CUBATURE ***********************************/
 	/**********************************************************************************/
@@ -393,49 +351,68 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 
 	// Get numerical integration points and weights
 	DefaultCubatureFactory<ST>  cubFactory;
-	int cubDegree = 2;
-	RCP<Cubature<ST> > hexCub = cubFactory.create (cellType, cubDegree);
 
-	int cubDim       = hexCub->getDimension ();
-	int numCubPoints = hexCub->getNumPoints ();
+	cubature = cubFactory.create (cellType, cubDegree);
 
-	FieldContainer<ST> cubPoints (numCubPoints, cubDim);
-	FieldContainer<ST> cubWeights (numCubPoints);
+	int cubDim       = cubature->getDimension ();
+	int numCubPoints = cubature->getNumPoints ();
 
-	hexCub->getCubature (cubPoints, cubWeights);
+	cubPoints.resize(numCubPoints, cubDim);
+	cubWeights.resize(numCubPoints);
+
+	cubature->getCubature (cubPoints, cubWeights);
 
 	/**********************************************************************************/
 	/*********************************** GET BASIS ************************************/
 	/**********************************************************************************/
 
 	LOG(2,"Getting basis");
-
 	// Define basis
-	Basis_HGRAD_HEX_C1_FEM<ST, FieldContainer<ST> > hexHGradBasis;
-	int numFieldsG = hexHGradBasis.getCardinality ();
-	FieldContainer<ST> HGBValues (numFieldsG, numCubPoints);
-	FieldContainer<ST> HGBGrads (numFieldsG, numCubPoints, spaceDim);
+	// select basis based on cell topology only for now, and assume first order basis
+	switch (cellType.getKey()) {
+		case shards::Tetrahedron<4>::key:
+			HGradBasis = Teuchos::rcp(new Intrepid::Basis_HGRAD_TET_C1_FEM<double, Intrepid::FieldContainer<double> > );
+			break;
+
+		case shards::Hexahedron<8>::key:
+			HGradBasis = Teuchos::rcp(new Intrepid::Basis_HGRAD_HEX_C1_FEM<double, Intrepid::FieldContainer<double> > );
+			break;
+
+		default:
+			ERROR("Unknown cell topology for basis selction. Please use Hexahedron_8 or Tetrahedron_4.");
+	}
+
+	int numFieldsG = HGradBasis->getCardinality();
+	HGBValues.resize(numFieldsG, numCubPoints);
+	HGBGrads.resize(numFieldsG, numCubPoints, spaceDim);
 
 	// Evaluate basis values and gradients at cubature points
-	hexHGradBasis.getValues (HGBValues, cubPoints, OPERATOR_VALUE);
-	hexHGradBasis.getValues (HGBGrads, cubPoints, OPERATOR_GRAD);
+	HGradBasis->getValues(HGBValues, cubPoints, OPERATOR_VALUE);
+	HGradBasis->getValues(HGBGrads, cubPoints, OPERATOR_GRAD);
+}
 
+void Pde::build_maps_and_create_matrices() {
+
+	using Teuchos::Array;
+	using Teuchos::TimeMonitor;
+	using Teuchos::as;
 	/**********************************************************************************/
 	/********************* BUILD MAPS FOR GLOBAL SOLUTION *****************************/
 	/**********************************************************************************/
 
 	LOG(2,"Building Maps");
+	int numFieldsG = HGradBasis->getCardinality();
 
 	RCP<Teuchos::Time> timerBuildGlobalMaps =
 			TimeMonitor::getNewTimer ("Build global Maps and Export");
 	Array<int> ownedGIDs;
-	RCP<const map_type> globalMapG;
+	const long long numNodes = global_node_ids.size();
 	{
 		TimeMonitor timerBuildGlobalMapsL (*timerBuildGlobalMaps);
 		// Count owned nodes
 		int ownedNodes = 0;
 		for (int i = 0; i < numNodes; ++i) {
-			if (nodeIsOwned[i]) {
+			if (node_is_owned[i]) {
 				++ownedNodes;
 			}
 		}
@@ -445,8 +422,8 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 		ownedGIDs.resize(ownedNodes);
 		int oidx = 0;
 		for (int i = 0; i < numNodes; ++i) {
-			if (nodeIsOwned[i]) {
-				ownedGIDs[oidx] = as<int> (globalNodeIds[i]);
+			if (node_is_owned[i]) {
+				ownedGIDs[oidx] = as<int> (global_node_ids[i]);
 				++oidx;
 			}
 		}
@@ -458,8 +435,6 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	/**********************************************************************************/
 
 	Array<GO> overlappedGIDs;
-	RCP<const map_type> overlappedMapG;
-	RCP<const export_type> exporter;
 	{
 		// Count owned nodes
 		int overlappedNodes = numNodes;
@@ -467,7 +442,7 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 		// Build a list of the OVERLAPPED global ids...
 		overlappedGIDs.resize (overlappedNodes);
 		for (int i = 0; i < numNodes; ++i) {
-			overlappedGIDs[i] = as<int> (globalNodeIds[i]);
+			overlappedGIDs[i] = as<int> (global_node_ids[i]);
 		}
 
 		//Generate overlapped Map for nodes.
@@ -483,10 +458,9 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 
 	LOG(2,"Building Graph");
 
-	RCP<sparse_graph_type> overlappedGraph;
-	RCP<sparse_graph_type> ownedGraph;
 	RCP<Teuchos::Time> timerBuildOverlapGraph =
 			TimeMonitor::getNewTimer ("Build graphs for overlapped and owned solutions");
+	const int numElems = elem_to_node.dimension(0);
 	{
 		TimeMonitor timerBuildOverlapGraphL (*timerBuildOverlapGraph);
 
@@ -525,15 +499,15 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 
 					int localRow  = elemToNode(cell, cellRow);
 					//globalRow for Tpetra Graph
-					global_size_t globalRowT = as<global_size_t> (globalNodeIds[localRow]);
+					Tpetra::global_size_t globalRowT = as<Tpetra::global_size_t> (global_node_ids[localRow]);
 
 					// "CELL VARIABLE" loop for the workset cell: cellCol is
 					// relative to the cell DoF numbering
 					for (int cellCol = 0; cellCol < numFieldsG; ++cellCol) {
-						int localCol  = elemToNode (cell, cellCol);
-						int globalCol = as<int> (globalNodeIds[localCol]);
+						int localCol  = elem_to_node (cell, cellCol);
+						int globalCol = as<int> (global_node_ids[localCol]);
 						//create ArrayView globalCol object for Tpetra
-						ArrayView<int> globalColAV = arrayView (&globalCol, 1);
+						Teuchos::ArrayView<int> globalColAV = Teuchos::arrayView (&globalCol, 1);
 
 						//Update Tpetra overlap Graph
 						overlappedGraph->insertGlobalIndices (globalRowT, globalColAV);
@@ -560,79 +534,79 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	// we've constructed the overlapped distribution objects, we'll
 	// Export to the owned distribution objects.
 	//
-	// Owned distribution objects: their names start with gl_.
+	// Owned distribution objects:
 	//
-	RCP<sparse_matrix_type> gl_StiffMatrix =
-			rcp (new sparse_matrix_type (ownedGraph.getConst ()));
-	RCP<vector_type> gl_SourceVector = rcp (new vector_type (globalMapG));
+	LHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
+	RHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
+	F = rcp (new vector_type (globalMapG));
+	X = rcp (new vector_type (globalMapG));
+
+}
+
+void Pde::integrate(const double dt) {
+	std::cout << "integrating for "<<dt<<" seconds." << std::endl;
+	bool converged = false;
+	int numItersPerformed = 0;
+	const MT tol = STM::squareroot (STM::eps ());
+	const int maxNumIters = 100;
+	TrilinosRD::solveWithBelos (converged, numItersPerformed, tol, maxNumIters,
+			data.X, data.A, data.B, Teuchos::null, Teuchos::null);
+
+	// Summarize timings
+	Teuchos::RCP<ParameterList> reportParams = parameterList ("TimeMonitor::report");
+	reportParams->set ("Report format", std::string ("YAML"));
+	reportParams->set ("writeGlobalStats", true);
+	Teuchos::TimeMonitor::report (*out, reportParams);
+}
 
 
+void Pde::make_LHS_and_RHS () {
+	using namespace Intrepid;
+	using Tpetra::global_size_t;
+	using Teuchos::Array;
+	using Teuchos::ArrayRCP;
+	using Teuchos::ArrayView;
+	using Teuchos::arrayView;
+	using Teuchos::as;
+
+	using Teuchos::TimeMonitor;
+	typedef Teuchos::ArrayView<LO>::size_type size_type;
+	typedef Teuchos::ScalarTraits<ST> STS;
+
+
+	// Number of independent variables fixed at 3
+	typedef Sacado::Fad::SFad<ST, 3>     Fad3;
+	typedef Intrepid::FunctionSpaceTools IntrepidFSTools;
+	typedef Intrepid::RealSpaceTools<ST> IntrepidRSTools;
+	typedef Intrepid::CellTools<ST>      IntrepidCTools;
+
+	LOG(2,"makeMatrixAndRightHandSide:");
+	Teuchos::OSTab tab (std::out);
+
+	const int numFieldsG = HGradBasis->getCardinality();
+	const int numCubPoints = cubature->getNumPoints();
+	const int numElems = elem_to_node.dimension(0);
+	const long long numNodes = global_node_ids.size();
+	const int numNodesPerElem = elem_to_node.dimension(1);
+	const int cubDim = cubature->getDimension();
+	const int numBCNodes = BCNodes.size();
+
 	//
-	// Overlapped distribution objects: their names don't start with gl_.
+	// Overlapped distribution objects:
 	//
-	RCP<sparse_matrix_type> StiffMatrix =
+	RCP<sparse_matrix_type> oLHS =
 			rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
-	StiffMatrix->setAllToScalar (STS::zero ());
-	RCP<vector_type> SourceVector = rcp (new vector_type (overlappedMapG));
-	SourceVector->putScalar (STS::zero ());
+	oLHS->setAllToScalar (STS::zero ());
+	RCP<sparse_matrix_type> oRHS=
+			rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
+	oRHS->setAllToScalar (STS::zero ());
 
-	/**********************************************************************************/
-	/************************** DIRICHLET BC SETUP ************************************/
-	/**********************************************************************************/
-
-	LOG(2,"Setting up Dirichlet boundary conditions");
-
-	// Timer for Dirichlet BC setup
-	RCP<Teuchos::Time> timerDirichletBC =
-			TimeMonitor::getNewTimer ("Get Dirichlet boundary values: Total Time");
-	int numBCNodes = 0;
-	RCP<vector_type> v;
-	Array<int> BCNodes;
-	{
-		TimeMonitor timerDirichletBCL(*timerDirichletBC);
-		for (int inode = 0; inode < numNodes; ++inode) {
-			if (nodeOnBoundary(inode) && nodeIsOwned[inode]) {
-				++numBCNodes;
-			}
-		}
-		// v: Vector for use in applying Dirichlet BCs.
-		// v uses the owned (nonoverlapped) distribution.
-		v = rcp (new vector_type (globalMapG, true));
-		v->putScalar (STS::zero ());
-
-		// Set v to boundary values on Dirichlet nodes.  While we're
-		// iterating through all the nodes that this process can see
-		// (which includes the nodes which my process owns, as well as
-		// nodes on the interface between my process and another process),
-		// also set the exact solution values.
-		BCNodes.resize (numBCNodes);
-		int indbc = 0;
-		int iOwned = 0;
-		for (int inode = 0; inode < numNodes; ++inode) {
-			if (nodeIsOwned[inode]) {
-				const ST x = nodeCoord(inode, 0);
-				const ST y = nodeCoord(inode, 1);
-				const ST z = nodeCoord(inode, 2);
-
-				if (nodeOnBoundary (inode)) {
-					BCNodes[indbc]=iOwned;
-					++indbc;
-					// We assume that the exact solution is defined on the
-					// boundary, and evaluate the exact solution function to get
-					// boundary values.
-					v->replaceLocalValue (iOwned, exactSolution (x,y,z));
-				} // if node inode is on the boundary
-
-				++iOwned;
-			} // if node inode is owned by my process
-		} // for each node inode that my process can see
-	} // Done setting up v (for Dirichlet BCs)
 
 	/**********************************************************************************/
 	/******************** DEFINE WORKSETS AND LOOP OVER THEM **************************/
 	/**********************************************************************************/
 
-	LOG(2,"Building discretization matrix and right hand side");
+	LOG(2,"Building discretization matricies");
 
 	// Define desired workset size and count how many worksets there are
 	// on this processor's mesh block
@@ -646,7 +620,7 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 		numWorksets += 1;
 	}
 
-	LOG(2,"Desired workset size:             " << desiredWorksetSize << endl
+	LOG(2,"Desired workset size:             " << desiredWorksetSize << std::endl
 				<< "Number of worksets (per process): " << numWorksets);
 
 	for (int workset = 0; workset < numWorksets; ++workset) {
@@ -668,9 +642,9 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 		int cellCounter = 0;
 		for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
 			for (int node = 0; node < numNodesPerElem; ++node) {
-				cellWorkset(cellCounter, node, 0) = nodeCoord( elemToNode(cell, node), 0);
-				cellWorkset(cellCounter, node, 1) = nodeCoord( elemToNode(cell, node), 1);
-				cellWorkset(cellCounter, node, 2) = nodeCoord( elemToNode(cell, node), 2);
+				cellWorkset(cellCounter, node, 0) = node_coord( elem_to_node(cell, node), 0);
+				cellWorkset(cellCounter, node, 1) = node_coord( elem_to_node(cell, node), 1);
+				cellWorkset(cellCounter, node, 2) = node_coord( elem_to_node(cell, node), 2);
 			}
 			++cellCounter;
 		}
@@ -706,12 +680,12 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 		// Containers for material values and source term. Require
 		// user-defined functions
 		FieldContainer<ST> worksetMaterialVals (worksetSize, numCubPoints, spaceDim, spaceDim);
-		FieldContainer<ST> worksetSourceTerm   (worksetSize, numCubPoints);
 
 		// Containers for workset contributions to the discretization
 		// matrix and the right hand side
 		FieldContainer<ST> worksetStiffMatrix (worksetSize, numFieldsG, numFieldsG);
-		FieldContainer<ST> worksetSource         (worksetSize, numFieldsG);
+		FieldContainer<ST> worksetMassMatrix (worksetSize, numFieldsG, numFieldsG);
+
 
 		/**********************************************************************************/
 		/*                                Calculate Jacobians                             */
@@ -760,6 +734,40 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 				worksetDiffusiveFlux,
 				COMP_BLAS);
 
+		/**********************************************************************************/
+		/*                         Compute Mass Matrix                               */
+		/**********************************************************************************/
+
+
+		//Transform basis values to physical frame:
+		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+				HGBValues);
+		// Multiply transformed (workset) gradients with weighted measure
+		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
+				worksetCubWeights,
+				worksetHGBValues);
+		// Integrate to compute workset contribution to global matrix:
+		IntrepidFSTools::integrate<ST> (worksetMassMatrix, // (u)*(u)*w
+				worksetHGBValues,
+				worksetHGBValuesWeighted,
+				COMP_BLAS);
+
+//		//Mass Lumped?????
+//		//Transform basis values to physical frame:
+//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+//				HGBValues);
+//		// Multiply transformed (workset) gradients with weighted measure
+//		cubWeights.resize(1,numCubPoints);
+//		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
+//				worksetCubWeights,
+//				worksetHGBValues);
+//		cubWeights.resize(numCubPoints);
+//		// Integrate to compute workset contribution to global matrix:
+//		IntrepidFSTools::integrate<ST> (worksetMassMatrix, // (u)*(u)*w
+//				worksetHGBValues,
+//				worksetHGBValuesWeighted,
+//				COMP_BLAS);
+
 //		/**********************************************************************************/
 //		/*                                   Compute Reaction                             */
 //		/**********************************************************************************/
@@ -793,22 +801,22 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 //		      // integrate to account for nonlinear reaction term
 //		      fst::integrate<double>(localPDEjacobian, df_of_u_times_basis, hexGValsTransformedWeighted, INTREPID_INTEGRATE_COMP_ENGINE, true);
 
-		/**********************************************************************************/
-		/*                                   Compute Source                               */
-		/**********************************************************************************/
-
-		// Transform basis values to physical frame:
-		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
-				HGBValues);
-		// Multiply transformed (workset) values with weighted measure
-		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*J*w
-				worksetCubWeights,
-				worksetHGBValues);
-		// Integrate worksetSourceTerm against weighted basis function set
-		IntrepidFSTools::integrate<ST> (worksetSource, // f.(u)*J*w
-				worksetSourceTerm,
-				worksetHGBValuesWeighted,
-				COMP_BLAS);
+//		/**********************************************************************************/
+//		/*                                   Compute Source                               */
+//		/**********************************************************************************/
+//
+//		// Transform basis values to physical frame:
+//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+//				HGBValues);
+//		// Multiply transformed (workset) values with weighted measure
+//		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*J*w
+//				worksetCubWeights,
+//				worksetHGBValues);
+//		// Integrate worksetSourceTerm against weighted basis function set
+//		IntrepidFSTools::integrate<ST> (worksetSource, // f.(u)*J*w
+//				worksetSourceTerm,
+//				worksetHGBValuesWeighted,
+//				COMP_BLAS);
 
 		/**********************************************************************************/
 		/*                         Assemble into Global Matrix                            */
@@ -828,27 +836,31 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 				// "CELL EQUATION" loop for the workset cell: cellRow is
 				// relative to the cell DoF numbering.
 				for (int cellRow = 0; cellRow < numFieldsG; ++cellRow) {
-					int localRow  = elemToNode (cell, cellRow);
-					int globalRow = as<int> (globalNodeIds[localRow]);
-					ST sourceTermContribution = worksetSource (worksetCellOrdinal, cellRow);
-					ArrayView<ST> sourceTermContributionAV =
-							arrayView (&sourceTermContribution, 1);
-
-					SourceVector->sumIntoGlobalValue (globalRow, sourceTermContribution);
+					int localRow  = elem_to_node (cell, cellRow);
+					int globalRow = as<int> (global_node_ids[localRow]);
+//					ST sourceTermContribution = worksetSource (worksetCellOrdinal, cellRow);
+//					ArrayView<ST> sourceTermContributionAV =
+//							arrayView (&sourceTermContribution, 1);
+//
+//					SourceVector->sumIntoGlobalValue (globalRow, sourceTermContribution);
 
 					// "CELL VARIABLE" loop for the workset cell: cellCol is
 					// relative to the cell DoF numbering.
 					for (int cellCol = 0; cellCol < numFieldsG; cellCol++){
-						const int localCol  = elemToNode(cell, cellCol);
-						int globalCol = as<int> (globalNodeIds[localCol]);
+						const int localCol  = elem_to_node(cell, cellCol);
+						int globalCol = as<int> (global_node_ids[localCol]);
 						ArrayView<int> globalColAV = arrayView<int> (&globalCol, 1);
-						ST operatorMatrixContribution =
-								worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
-						ArrayView<ST> operatorMatrixContributionAV =
-								arrayView<ST> (&operatorMatrixContribution, 1);
+						ST operatorMatrixContributionLHS =
+								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
+								+ theta*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
+						ST operatorMatrixContributionRHS =
+								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
+								- (1.0-theta)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
 
-						StiffMatrix->sumIntoGlobalValues (globalRow, globalColAV,
-								operatorMatrixContributionAV);
+						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
+								arrayView<ST> (&operatorMatrixContributionLHS, 1));
+						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
+								arrayView<ST> (&operatorMatrixContributionRHS, 1));
 					}// *** cell col loop ***
 				}// *** cell row loop ***
 			}// *** workset cell loop **
@@ -867,7 +879,7 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	{
 		TimeMonitor timerAssembMultProcL (*timerAssembMultProc);
 		gl_StiffMatrix->setAllToScalar (STS::zero ());
-		gl_StiffMatrix->doExport (*StiffMatrix, *exporter, Tpetra::ADD);
+		gl_StiffMatrix->doExport (*oLHS, *exporter, Tpetra::ADD);
 		// If target of export has static graph, no need to do
 		// setAllToScalar(0.0); export will clobber values.
 		gl_StiffMatrix->fillComplete ();
@@ -899,10 +911,10 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 
 		// Adjust rhs due to Dirichlet boundary conditions.
 		for (int inode = 0; inode < numNodes; ++inode) {
-			if (nodeIsOwned[inode]) {
-				if (nodeOnBoundary (inode)) {
+			if (node_is_owned[inode]) {
+				if (node_on_boundary (inode)) {
 					// Get global node ID
-					const GO gni = as<GO> (globalNodeIds[inode]);
+					const GO gni = as<GO> (global_node_ids[inode]);
 					const LO lidT = globalMapG->getLocalElement (gni);
 					ST v_valT = vArrayRCP[lidT];
 					gl_SourceVector->replaceGlobalValue (gni, v_valT);
@@ -993,12 +1005,7 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	// We're done modifying the owned stiffness matrix.
 	gl_StiffMatrix->fillComplete ();
 
-	//
-	// We're done with assembly, so we can delete the mesh.
-	//
-	delete [] nodeIsOwned;
-	nodeIsOwned = NULL;
-	Delete_Pamgen_Mesh ();
+
 
 	// Create vector to store approximate solution, and set initial guess.
 	RCP<vector_type> gl_approxSolVector = rcp (new vector_type (globalMapG));
@@ -1010,15 +1017,9 @@ void Pde::makeMatrixAndRightHandSide (Teuchos::RCP<sparse_matrix_type>& A,
 	X = gl_approxSolVector;
 }
 
-/**********************************************************************************/
-/*************************** EVALUATION METHODS ***********************************/
-/**********************************************************************************/
+
 template<typename Scalar>
-void Pde::materialTensor (Scalar material[][3],
-		const Scalar& x,
-		const Scalar& y,
-		const Scalar& z)
-{
+void Pde::materialTensor (Scalar material[][3], const Scalar& x, const Scalar& y,const Scalar& z) {
 	typedef Teuchos::ScalarTraits<Scalar> STS;
 
 	material[0][0] = STS::one();
@@ -1038,9 +1039,7 @@ void Pde::materialTensor (Scalar material[][3],
 
 //! Compute the material tensor over a workset.
 template<class ArrayOut, class ArrayIn>
-void Pde::evaluateMaterialTensor (ArrayOut&      matTensorValues,
-		const ArrayIn& evaluationPoints)
-{
+void Pde::evaluateMaterialTensor (ArrayOut& matTensorValues, const ArrayIn& evaluationPoints) {
   typedef typename ArrayOut::scalar_type scalar_type;
 
   const int numWorksetCells  = evaluationPoints.dimension(0);
@@ -1065,4 +1064,12 @@ void Pde::evaluateMaterialTensor (ArrayOut&      matTensorValues,
     }
   }
 }
+
+void Pde::init(int argc, char *argv[]) {
+	Teuchos::oblackholestream blackHole;
+	Teuchos::GlobalMPISession mpiSession (&argc, &argv, &blackHole);
+	my_rank = mpiSession.getRank();
+	num_procs = mpiSession.getNProc();
+}
+
 
