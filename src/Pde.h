@@ -80,12 +80,13 @@ class Pde {
 	using Teuchos::rcp;
 
 public:
-	Pde(const char* filename);
+	Pde(const char* filename, const double dt);
 	~Pde() {
 		delete [] node_is_owned;
 		node_is_owned = NULL;
 	}
 	void integrate(const double dt);
+	void add_particle(const ST x, const ST y, const ST z);
 	static void init(int argc, char *argv[]);
 private:
 	/*
@@ -139,10 +140,22 @@ private:
 	Intrepid::FieldContainer<ST> HGBValues;
 	Intrepid::FieldContainer<ST> HGBGrads;
 
+	/*
+	 * Timestepping
+	 */
+	double dt;
+	const double omega = 0.5;
+
+	/*
+	 * Particle data
+	 */
+	Teuchos::Array<ST> x0,x1,y0,y1,y0,y1;
+
 	void setup_pamgen_mesh(const std::string& meshInput);
 	void create_cubature_and_basis();
 	void build_maps_and_create_matrices();
 	void make_LHS_and_RHS();
+	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 
 
 	template<typename Scalar>
@@ -151,11 +164,6 @@ private:
 
 	template<class ArrayOut, class ArrayIn>
 	void evaluateMaterialTensor (ArrayOut& worksetMaterialValues,const ArrayIn& evaluationPoints);
-
-
-
-
-
 
 
 };

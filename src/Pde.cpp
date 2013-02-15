@@ -32,7 +32,7 @@ struct MyTrilinosData {
 	RCP<vector_type> B, X;
 };
 
-Pde::Pde(const char* filename) {
+Pde::Pde(const char* filename, const double dt):dt(dt) {
 
 	// Get the default communicator and Kokkos Node instance
 	comm = Tpetra::DefaultPlatform::getDefaultPlatform ().getComm ();
@@ -47,14 +47,30 @@ Pde::Pde(const char* filename) {
 
 		inputMeshList.print (std::out, 2, true, true);
 		std::out << endl;
-		setup_mesh();
+		setup_pamgen_mesh(inputMeshList);
 
 	} else {
 		ERROR("unknown input filename to Pde class");
 	}
 
-	make_LHS_and_RHS (data.A, data.B, data.X, comm, node, meshInput);
+	create_cubature_and_basis();
+	build_maps_and_create_matrices();
+	make_LHS_and_RHS();
+}
 
+void Pde::add_particle(const ST x, const ST y, const ST z) {
+	const int numNodes = node_coord.size();
+	for (int i=0; i<numNodes; i++) {
+		const ST xn = node_coord(i,0);
+		const ST yn = node_coord(i,1);
+		const ST zn = node_coord(i,2);
+		X->sumIntoLocalValue(i,
+				1 - abs(x - xn)/dx) .* (abs(x - xn)/dx < 1)/dx);
+
+		node_coord(i,0)=nodeCoordx[i];
+		node_coord(i,1)=nodeCoordy[i];
+		node_coord(i,2)=nodeCoordz[i];
+	}
 }
 
 void Pde::setup_pamgen_mesh(const std::string& meshInput){
@@ -107,7 +123,7 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 	im_ex_get_init_l (id, title, &numDim, &numNodes, &numElems, &numElemBlk,
 			&numNodeSets, &numSideSets);
 
-	ASSERT(numElems > 0,"The number of elements in the mesh is zero.")
+	ASSERT(numElems > 0,"The number of elements in the mesh is zero.");
 
 	long long numNodesGlobal;
 	long long numElemsGlobal;
@@ -541,6 +557,10 @@ void Pde::build_maps_and_create_matrices() {
 	F = rcp (new vector_type (globalMapG));
 	X = rcp (new vector_type (globalMapG));
 
+	// initialise source term and concentration to zero
+	F->putScalar(0);
+	X->putScalar(0);
+
 }
 
 void Pde::integrate(const double dt) {
@@ -872,149 +892,132 @@ void Pde::make_LHS_and_RHS () {
 	// to owned (nonoverlapping) row Map.
 	//////////////////////////////////////////////////////////////////////////////
 
-	LOG(2,"Exporting matrix and right-hand side from overlapped to owned Map");
+	LOG(2,"Exporting RHS and LHS from overlapped to owned Map");
 
 	RCP<Teuchos::Time> timerAssembMultProc =
 			TimeMonitor::getNewTimer ("Export from overlapped to owned");
 	{
 		TimeMonitor timerAssembMultProcL (*timerAssembMultProc);
-		gl_StiffMatrix->setAllToScalar (STS::zero ());
-		gl_StiffMatrix->doExport (*oLHS, *exporter, Tpetra::ADD);
+		LHS->setAllToScalar (STS::zero ());
+		LHS->doExport (*oLHS, *exporter, Tpetra::ADD);
 		// If target of export has static graph, no need to do
 		// setAllToScalar(0.0); export will clobber values.
-		gl_StiffMatrix->fillComplete ();
+		LHS->fillComplete ();
 
-		gl_SourceVector->putScalar (STS::zero ());
-		gl_SourceVector->doExport (*SourceVector, *exporter, Tpetra::ADD);
+		RHS->setAllToScalar (STS::zero ());
+		RHS->doExport (*oRHS, *exporter, Tpetra::ADD);
+		// If target of export has static graph, no need to do
+		// setAllToScalar(0.0); export will clobber values.
+		RHS->fillComplete ();
 	}
 
 	//////////////////////////////////////////////////////////////////////////////
 	// Adjust matrix for boundary conditions
 	//////////////////////////////////////////////////////////////////////////////
 
-	LOG(2,"Adjusting matrix and right-hand side for BCs");
+	LOG(2,"Adjusting for BCs");
 
 	RCP<Teuchos::Time> timerAdjustMatrixBC =
-			TimeMonitor::getNewTimer ("Adjust owned matrix and Source for BCs");
+			TimeMonitor::getNewTimer ("Adjust owned matrix for BCs");
 	{
 		TimeMonitor timerAdjustMatrixBCL (*timerAdjustMatrixBC);
-
-		// Apply owned stiffness matrix to v: rhs := A*v
-		RCP<multivector_type> rhsDir =
-				rcp (new multivector_type (globalMapG, true));
-		gl_StiffMatrix->apply (*v.getConst (), *rhsDir);
-		// Update right-hand side
-		gl_SourceVector->update (as<ST> (-STS::one ()), *rhsDir, STS::one ());
-
-		// Get a const view of the vector's local data.
-		ArrayRCP<const ST> vArrayRCP = v->getData (0);
-
-		// Adjust rhs due to Dirichlet boundary conditions.
-		for (int inode = 0; inode < numNodes; ++inode) {
-			if (node_is_owned[inode]) {
-				if (node_on_boundary (inode)) {
-					// Get global node ID
-					const GO gni = as<GO> (global_node_ids[inode]);
-					const LO lidT = globalMapG->getLocalElement (gni);
-					ST v_valT = vArrayRCP[lidT];
-					gl_SourceVector->replaceGlobalValue (gni, v_valT);
-				}
-			}
-		}
-
-		// Zero out rows and columns of stiffness matrix corresponding to
-		// Dirichlet edges and add one to diagonal.  The following is the
-		// Tpetra analog of Apply_OAZToMatrix().
-		//
-		// Reenable changes to the values and structure of the global
-		// stiffness matrix.
-		gl_StiffMatrix->resumeFill ();
-
-		// Find the local column numbers to nuke
-		RCP<const map_type> ColMap = gl_StiffMatrix->getColMap ();
-		RCP<const map_type> globalMap =
-				rcp (new map_type (gl_StiffMatrix->getGlobalNumCols (), 0, comm,
-						Tpetra::GloballyDistributed, node));
-
-		// Create the exporter from this process' column Map to the global
-		// 1-1 column map. (???)
-		RCP<const export_type> bdyExporter =
-				rcp (new export_type (ColMap, globalMap));
-		// Create a vector of global column indices to which we will export
-		RCP<Tpetra::Vector<int, LO, GO, Node> > globColsToZeroT =
-				rcp (new Tpetra::Vector<int, LO, GO, Node> (globalMap));
-		// Create a vector of local column indices from which we will export
-		RCP<Tpetra::Vector<int, LO, GO, Node> > myColsToZeroT =
-				rcp (new Tpetra::Vector<int, LO, GO, Node> (ColMap));
-		myColsToZeroT->putScalar (0);
-
-		// Flag (set to 1) all local columns corresponding to the local
-		// rows specified.
-		for (int i = 0; i < numBCNodes; ++i) {
-			const GO globalRow = gl_StiffMatrix->getRowMap ()->getGlobalElement (BCNodes[i]);
-			const LO localCol = gl_StiffMatrix->getColMap ()->getLocalElement (globalRow);
-			// Tpetra::Vector<int, ...> works just like
-			// Tpetra::Vector<double, ...>.  Epetra has a separate
-			// Epetra_IntVector class for ints.
-			myColsToZeroT->replaceLocalValue (localCol, 1);
-		}
-
-		// Export to the global column map.
-		globColsToZeroT->doExport (*myColsToZeroT, *bdyExporter, Tpetra::ADD);
-		// Import from the global column map to the local column map.
-		myColsToZeroT->doImport (*globColsToZeroT, *bdyExporter, Tpetra::INSERT);
-
-		Array<ST> values;
-		Array<int> indices;
-		ArrayRCP<const int> myColsToZeroArrayRCP = myColsToZeroT->getData(0);
-		size_t NumEntries = 0;
-
-		// Zero the columns corresponding to Dirichlet BCs.
-		for (LO i = 0; i < as<int> (gl_StiffMatrix->getNodeNumRows ()); ++i) {
-			NumEntries = gl_StiffMatrix->getNumEntriesInLocalRow (i);
-			values.resize (NumEntries);
-			indices.resize (NumEntries);
-			gl_StiffMatrix->getLocalRowCopy (i, indices (), values (), NumEntries);
-			for (int j = 0; j < as<int> (NumEntries); ++j) {
-				if (myColsToZeroArrayRCP[indices[j]] == 1)
-					values[j] = STS::zero ();
-			}
-			gl_StiffMatrix->replaceLocalValues (i, indices (), values ());
-		} // for each (local) row of the global stiffness matrix
-
-		// Zero the rows and add ones to diagonal.
-		for (int i = 0; i < numBCNodes; ++i) {
-			NumEntries = gl_StiffMatrix->getNumEntriesInLocalRow (BCNodes[i]);
-			indices.resize (NumEntries);
-			values.resize (NumEntries);
-			gl_StiffMatrix->getLocalRowCopy (BCNodes[i], indices (), values (), NumEntries);
-			const GO globalRow = gl_StiffMatrix->getRowMap ()->getGlobalElement (BCNodes[i]);
-			const LO localCol = gl_StiffMatrix->getColMap ()->getLocalElement (globalRow);
-			for (int j = 0; j < as<int> (NumEntries); ++j) {
-				values[j] = STS::zero ();
-				if (indices[j] == localCol) {
-					values[j] = STS::one ();
-				}
-			} // for each entry in the current row
-			gl_StiffMatrix->replaceLocalValues (BCNodes[i], indices (), values ());
-		} // for each BC node
+		// Zero out rows and columns of LHS & RHS matrix corresponding to
+		zero_out_rows_and_columns(LHS);
+		zero_out_rows_and_columns(RHS);
 	}
 
-	LOG(2,"Calling fillComplete() on owned-Map stiffness matrix");
+}
+
+void Pde::zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix) {
+	using Teuchos::Array;
+	using Teuchos::ArrayRCP;
+	using Teuchos::ArrayView;
+	using Teuchos::arrayView;
+	using Teuchos::as;
+	typedef Teuchos::ScalarTraits<ST> STS;
+
+	const int numBCNodes = BCNodes.size();
+
+	// Zero out rows and columns of LHS & RHS matrix corresponding to
+	// Dirichlet edges and add one to diagonal.  The following is the
+	// Tpetra analog of Apply_OAZToMatrix().
+	//
+	// Reenable changes to the values and structure of the global
+	// stiffness matrix.
+	matrix->resumeFill ();
+
+	// Find the local column numbers to nuke
+	RCP<const map_type> ColMap = matrix->getColMap ();
+	RCP<const map_type> globalMap =
+			rcp (new map_type (matrix->getGlobalNumCols (), 0, comm,
+					Tpetra::GloballyDistributed, node));
+
+	// Create the exporter from this process' column Map to the global
+	// 1-1 column map. (???)
+	RCP<const export_type> bdyExporter =
+			rcp (new export_type (ColMap, globalMap));
+	// Create a vector of global column indices to which we will export
+	RCP<Tpetra::Vector<int, LO, GO, Node> > globColsToZeroT =
+			rcp (new Tpetra::Vector<int, LO, GO, Node> (globalMap));
+	// Create a vector of local column indices from which we will export
+	RCP<Tpetra::Vector<int, LO, GO, Node> > myColsToZeroT =
+			rcp (new Tpetra::Vector<int, LO, GO, Node> (ColMap));
+	myColsToZeroT->putScalar (0);
+
+	// Flag (set to 1) all local columns corresponding to the local
+	// rows specified.
+	for (int i = 0; i < numBCNodes; ++i) {
+		const GO globalRow = matrix->getRowMap ()->getGlobalElement (BCNodes[i]);
+		const LO localCol = matrix->getColMap ()->getLocalElement (globalRow);
+		// Tpetra::Vector<int, ...> works just like
+		// Tpetra::Vector<double, ...>.  Epetra has a separate
+		// Epetra_IntVector class for ints.
+		myColsToZeroT->replaceLocalValue (localCol, 1);
+	}
+
+	// Export to the global column map.
+	globColsToZeroT->doExport (*myColsToZeroT, *bdyExporter, Tpetra::ADD);
+	// Import from the global column map to the local column map.
+	myColsToZeroT->doImport (*globColsToZeroT, *bdyExporter, Tpetra::INSERT);
+
+	Array<ST> values;
+	Array<int> indices;
+	ArrayRCP<const int> myColsToZeroArrayRCP = myColsToZeroT->getData(0);
+	size_t NumEntries = 0;
+
+	// Zero the columns corresponding to Dirichlet BCs.
+	for (LO i = 0; i < as<int> (matrix->getNodeNumRows ()); ++i) {
+		NumEntries = matrix->getNumEntriesInLocalRow (i);
+		values.resize (NumEntries);
+		indices.resize (NumEntries);
+		matrix->getLocalRowCopy (i, indices (), values (), NumEntries);
+		for (int j = 0; j < as<int> (NumEntries); ++j) {
+			if (myColsToZeroArrayRCP[indices[j]] == 1)
+				values[j] = STS::zero ();
+		}
+		matrix->replaceLocalValues (i, indices (), values ());
+	} // for each (local) row of the global stiffness matrix
+
+	// Zero the rows and add ones to diagonal.
+	for (int i = 0; i < numBCNodes; ++i) {
+		NumEntries = matrix->getNumEntriesInLocalRow (BCNodes[i]);
+		indices.resize (NumEntries);
+		values.resize (NumEntries);
+		matrix->getLocalRowCopy (BCNodes[i], indices (), values (), NumEntries);
+		const GO globalRow = matrix->getRowMap ()->getGlobalElement (BCNodes[i]);
+		const LO localCol = matrix->getColMap ()->getLocalElement (globalRow);
+		for (int j = 0; j < as<int> (NumEntries); ++j) {
+			values[j] = STS::zero ();
+			if (indices[j] == localCol) {
+				values[j] = STS::one ();
+			}
+		} // for each entry in the current row
+		matrix->replaceLocalValues (BCNodes[i], indices (), values ());
+	} // for each BC node
 
 	// We're done modifying the owned stiffness matrix.
-	gl_StiffMatrix->fillComplete ();
+	matrix->fillComplete ();
 
-
-
-	// Create vector to store approximate solution, and set initial guess.
-	RCP<vector_type> gl_approxSolVector = rcp (new vector_type (globalMapG));
-	gl_approxSolVector->putScalar (STS::zero ());
-
-	// Store the output pointers.
-	A = gl_StiffMatrix;
-	B = gl_SourceVector;
-	X = gl_approxSolVector;
 }
 
 
