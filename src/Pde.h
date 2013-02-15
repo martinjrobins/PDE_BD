@@ -57,14 +57,17 @@
 // Sacado includes
 #include <Sacado.hpp>
 
+// Belos includes
+#include <BelosTpetraAdapter.hpp>
 
+using Teuchos::RCP;
+		using Teuchos::rcp;
 
 class Pde {
 	typedef double ST;
 	typedef int    LO;
 	typedef int    GO;
 	typedef Tpetra::DefaultPlatform::DefaultPlatformType::NodeType  Node;
-
 
 	typedef Tpetra::CrsMatrix<ST, LO, GO, Node>    sparse_matrix_type;
 	typedef Tpetra::Operator<ST, LO, GO, Node>     operator_type;
@@ -76,8 +79,7 @@ class Pde {
 	typedef Tpetra::Import<LO, GO, Node>      import_type;
 	typedef Tpetra::CrsGraph<LO, GO, Node>    sparse_graph_type;
 
-	using Teuchos::RCP;
-	using Teuchos::rcp;
+
 
 public:
 	Pde(const char* filename, const double dt);
@@ -85,15 +87,16 @@ public:
 		delete [] node_is_owned;
 		node_is_owned = NULL;
 	}
-	void integrate(const double dt);
+	void integrate(const ST dt);
 	void add_particle(const ST x, const ST y, const ST z);
 	static void init(int argc, char *argv[]);
 private:
+
 	/*
 	 * MPI
 	 */
-	int my_rank;
-	int num_procs;
+	static int my_rank;
+	static int num_procs;
 	RCP<const Teuchos::Comm<int> > comm;
 	RCP<Node> node;
 
@@ -110,13 +113,14 @@ private:
 	 * Matricies
 	 */
 	RCP<sparse_matrix_type> LHS,RHS;
-	RCP<vector_type> X,F;
+	RCP<vector_type> X;
 
 
 	/*
 	 * Mesh data
 	 */
-	const int spaceDim = 3;
+	ST dirac_width;
+	const static int spaceDim = 3;
 	Intrepid::FieldContainer<int> elem_to_node;
 	Intrepid::FieldContainer<ST> node_coord;
 	Teuchos::Array<long long> global_node_ids;
@@ -132,7 +136,7 @@ private:
 	/*
 	 * Basis
 	 */
-	const int cubDegree = 2;
+	const static int cubDegree = 2;
 	RCP<Intrepid::Cubature<ST> > cubature;
 	Intrepid::FieldContainer<ST> cubPoints;
 	Intrepid::FieldContainer<ST> cubWeights;
@@ -143,19 +147,17 @@ private:
 	/*
 	 * Timestepping
 	 */
-	double dt;
-	const double omega = 0.5;
+	ST dt;
+	const static ST omega = 0.5;
 
-	/*
-	 * Particle data
-	 */
-	Teuchos::Array<ST> x0,x1,y0,y1,y0,y1;
 
 	void setup_pamgen_mesh(const std::string& meshInput);
 	void create_cubature_and_basis();
 	void build_maps_and_create_matrices();
 	void make_LHS_and_RHS();
 	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
+	void solve();
+	std::string makeMeshInput (const int nx, const int ny, const int nz);
 
 
 	template<typename Scalar>

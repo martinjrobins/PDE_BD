@@ -24,34 +24,23 @@
 
 #include "Pde.h"
 #include <iostream>
-#include "TrilinosRD.hpp"
+#include "TrilinosSolve.h"
 #include "Log.h"
+#include "Constants.h"
 
-struct MyTrilinosData {
-	RCP<sparse_matrix_type> A;
-	RCP<vector_type> B, X;
-};
 
-Pde::Pde(const char* filename, const double dt):dt(dt) {
+Pde::Pde(const char* filename, const ST dt):dt(dt),dirac_width(0.1) {
 
 	// Get the default communicator and Kokkos Node instance
 	comm = Tpetra::DefaultPlatform::getDefaultPlatform ().getComm ();
 	node = Tpetra::DefaultPlatform::getDefaultPlatform ().getNode ();
 
 
-	std::string fstr(filename);
-	if (fstr.substr(fstr.length-4,4) == ".xml") {
-		Teuchos::ParameterList inputMeshList;
-		LOG(2,"Reading mesh parameters from XML file \""<< fstr << "\"..." << std::endl);
-		Teuchos::updateParametersFromXmlFile (fstr, inputMeshList);
+	std::string meshInput;
+	meshInput = makeMeshInput(5, 5, 5);
 
-		inputMeshList.print (std::out, 2, true, true);
-		std::out << endl;
-		setup_pamgen_mesh(inputMeshList);
+	setup_pamgen_mesh(meshInput);
 
-	} else {
-		ERROR("unknown input filename to Pde class");
-	}
 
 	create_cubature_and_basis();
 	build_maps_and_create_matrices();
@@ -59,18 +48,26 @@ Pde::Pde(const char* filename, const double dt):dt(dt) {
 }
 
 void Pde::add_particle(const ST x, const ST y, const ST z) {
+	typedef Teuchos::ScalarTraits<ST> STS;
+	typedef STS::magnitudeType MT;
+	typedef Teuchos::ScalarTraits<MT> STM;
+
 	const int numNodes = node_coord.size();
 	for (int i=0; i<numNodes; i++) {
-		const ST xn = node_coord(i,0);
-		const ST yn = node_coord(i,1);
-		const ST zn = node_coord(i,2);
-		X->sumIntoLocalValue(i,
-				1 - abs(x - xn)/dx) .* (abs(x - xn)/dx < 1)/dx);
-
-		node_coord(i,0)=nodeCoordx[i];
-		node_coord(i,1)=nodeCoordy[i];
-		node_coord(i,2)=nodeCoordz[i];
-	}
+		if (node_is_owned[i]) {
+			const ST dx = node_coord(i,0) - x;
+			const ST dy = node_coord(i,1) - y;
+			const ST dz = node_coord(i,2) - z;
+			if ((dx < dirac_width) && (dy < dirac_width) && (dz < dirac_width)) {
+				const MT r = STM::squareroot(dx*dx + dy*dy + dz*dz);
+				if (r < dirac_width) {
+					X->sumIntoLocalValue(i,
+							(1.0 - r/dirac_width)/(2.0*PI*PI*dirac_width)
+					);
+				} // if node within particle radius
+			} // if node within the square
+		} // if node is owned by this process
+	} // loop through all nodes
 }
 
 void Pde::setup_pamgen_mesh(const std::string& meshInput){
@@ -513,7 +510,7 @@ void Pde::build_maps_and_create_matrices() {
 				// relative to the cell DoF numbering
 				for (int cellRow = 0; cellRow < numFieldsG; cellRow++){
 
-					int localRow  = elemToNode(cell, cellRow);
+					int localRow  = elem_to_node(cell, cellRow);
 					//globalRow for Tpetra Graph
 					Tpetra::global_size_t globalRowT = as<Tpetra::global_size_t> (global_node_ids[localRow]);
 
@@ -554,29 +551,24 @@ void Pde::build_maps_and_create_matrices() {
 	//
 	LHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
 	RHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
-	F = rcp (new vector_type (globalMapG));
+	//F = rcp (new vector_type (globalMapG));
 	X = rcp (new vector_type (globalMapG));
 
 	// initialise source term and concentration to zero
-	F->putScalar(0);
+	//F->putScalar(0);
 	X->putScalar(0);
 
 }
 
-void Pde::integrate(const double dt) {
-	std::cout << "integrating for "<<dt<<" seconds." << std::endl;
-	bool converged = false;
-	int numItersPerformed = 0;
-	const MT tol = STM::squareroot (STM::eps ());
-	const int maxNumIters = 100;
-	TrilinosRD::solveWithBelos (converged, numItersPerformed, tol, maxNumIters,
-			data.X, data.A, data.B, Teuchos::null, Teuchos::null);
+void Pde::integrate(const ST requested_dt) {
 
-	// Summarize timings
-	Teuchos::RCP<ParameterList> reportParams = parameterList ("TimeMonitor::report");
-	reportParams->set ("Report format", std::string ("YAML"));
-	reportParams->set ("writeGlobalStats", true);
-	Teuchos::TimeMonitor::report (*out, reportParams);
+
+	const int iterations = int(requested_dt/dt + 0.5);
+	const double actual_dt = iterations*requested_dt;
+	std::cout << "integrating for "<<actual_dt<<" seconds." << std::endl;
+	for (int i = 0; i < iterations; ++i) {
+		solve();
+	}
 }
 
 
@@ -601,7 +593,7 @@ void Pde::make_LHS_and_RHS () {
 	typedef Intrepid::CellTools<ST>      IntrepidCTools;
 
 	LOG(2,"makeMatrixAndRightHandSide:");
-	Teuchos::OSTab tab (std::out);
+	Teuchos::OSTab tab (std::cout);
 
 	const int numFieldsG = HGradBasis->getCardinality();
 	const int numCubPoints = cubature->getNumPoints();
@@ -724,9 +716,6 @@ void Pde::make_LHS_and_RHS () {
 
 		// Evaluate the material tensor A at cubature points.
 		evaluateMaterialTensor (worksetMaterialVals, worksetCubPoints);
-
-		// Evaluate the source term at cubature points.
-		evaluateSourceTerm (worksetSourceTerm, worksetCubPoints);
 
 		/**********************************************************************************/
 		/*                         Compute Stiffness Matrix                               */
@@ -872,10 +861,10 @@ void Pde::make_LHS_and_RHS () {
 						ArrayView<int> globalColAV = arrayView<int> (&globalCol, 1);
 						ST operatorMatrixContributionLHS =
 								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
-								+ theta*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
+								+ omega*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
 						ST operatorMatrixContributionRHS =
 								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
-								- (1.0-theta)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
+								- (1.0-omega)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
 
 						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
@@ -1075,4 +1064,60 @@ void Pde::init(int argc, char *argv[]) {
 	num_procs = mpiSession.getNProc();
 }
 
+
+void Pde::solve() {
+	typedef Teuchos::ScalarTraits<ST> STS;
+	typedef STS::magnitudeType MT;
+	typedef Teuchos::ScalarTraits<MT> STM;
+
+
+	bool converged = false;
+	int numItersPerformed = 0;
+	const MT tol = STM::squareroot (STM::eps ());
+	const int maxNumIters = 100;
+	RCP<vector_type> rhsDir =
+			rcp (new vector_type (globalMapG, true));
+	RHS->apply(*X.getConst(),*rhsDir);
+	TrilinosRD::solveWithBelos<ST, multivector_type, operator_type>(
+			converged, numItersPerformed, tol, maxNumIters,
+			X, LHS,
+			rhsDir, Teuchos::null, Teuchos::null
+			);
+
+	// Summarize timings
+//	Teuchos::RCP<Teuchos::ParameterList> reportParams = parameterList ("TimeMonitor::report");
+//	reportParams->set ("Report format", std::string ("YAML"));
+//	reportParams->set ("writeGlobalStats", true);
+//	Teuchos::TimeMonitor::report(std::cout, reportParams);
+}
+
+std::string Pde::makeMeshInput (const int nx, const int ny, const int nz) {
+  using std::endl;
+  std::ostringstream os;
+
+  TEUCHOS_TEST_FOR_EXCEPTION( nx <= 0 || ny <= 0 || nz <= 0,
+    std::invalid_argument, "nx, ny, and nz must all be positive.");
+
+  os << "mesh" << endl
+     << "\trectilinear" << endl
+     << "\t\tnx = " << nx << endl
+     << "\t\tny = " << ny << endl
+     << "\t\tnz = " << nz << endl
+     << "\t\tbx = 1" << endl
+     << "\t\tby = 1" << endl
+     << "\t\tbz = 1" << endl
+     << "\t\tgmin = 0 0 0" << endl
+     << "\t\tgmax = 1 1 1" << endl
+     << "\tend" << endl
+     << "\tset assign" << endl
+     << "\t\tsideset, ilo, 1" << endl
+     << "\t\tsideset, jlo, 2" << endl
+     << "\t\tsideset, klo, 3" << endl
+     << "\t\tsideset, ihi, 4" << endl
+     << "\t\tsideset, jhi, 5" << endl
+     << "\t\tsideset, khi, 6" << endl
+     << "\tend" << endl
+     << "end";
+  return os.str ();
+}
 

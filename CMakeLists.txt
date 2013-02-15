@@ -2,14 +2,47 @@
 # refer to the root source directory of the project as ${PDE_BD_SOURCE_DIR} and 
 # to the root binary directory of the project as ${PDE_BD_BINARY_DIR}. 
 project (pde_bd) 
-cmake_minimum_required (VERSION 2.6) 
-CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
-IF(NOT CMAKE_BUILD_TYPE)
-  SET(CMAKE_BUILD_TYPE "DEBUG")
-  #SET(CMAKE_BUILD_TYPE "RELEASE")
-  #SET(CMAKE_BUILD_TYPE "RELWITHDEBINFO")
-  #SET(CMAKE_BUILD_TYPE "MINSIZEREL")
-ENDIF()
+cmake_minimum_required (VERSION 2.8) 
+
+
+FIND_PACKAGE(PythonInterp REQUIRED)
+FIND_PACKAGE(PythonLibs REQUIRED)
+FIND_PACKAGE(Boost COMPONENTS python REQUIRED)
+FIND_PACKAGE(MPI REQUIRED)
+
+SET(Trilinos_PREFIX $ENV{HOME}/pkg/Trilinos/debug)
+message(STATUS ${Trilinos_PREFIX})
+SET(CMAKE_PREFIX_PATH ${Trilinos_PREFIX} ${CMAKE_PREFIX_PATH})
+
+set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-undefined")
+
+# Get Trilinos as one entity
+FIND_PACKAGE(Trilinos REQUIRED)
+
+
+# Echo trilinos build info just for fun
+MESSAGE("\nFound Trilinos!  Here are the details: ")
+MESSAGE("   Trilinos_DIR = ${Trilinos_DIR}")
+MESSAGE("   Trilinos_VERSION = ${Trilinos_VERSION}")
+MESSAGE("   Trilinos_PACKAGE_LIST = ${Trilinos_PACKAGE_LIST}")
+MESSAGE("   Trilinos_LIBRARIES = ${Trilinos_LIBRARIES}")
+MESSAGE("   Trilinos_INCLUDE_DIRS = ${Trilinos_INCLUDE_DIRS}")
+MESSAGE("   Trilinos_LIBRARY_DIRS = ${Trilinos_LIBRARY_DIRS}")
+MESSAGE("   Trilinos_TPL_LIST = ${Trilinos_TPL_LIST}")
+MESSAGE("   Trilinos_TPL_INCLUDE_DIRS = ${Trilinos_TPL_INCLUDE_DIRS}")
+MESSAGE("   Trilinos_TPL_LIBRARIES = ${Trilinos_TPL_LIBRARIES}")
+MESSAGE("   Trilinos_TPL_LIBRARY_DIRS = ${Trilinos_TPL_LIBRARY_DIRS}")
+MESSAGE("   Trilinos_BUILD_SHARED_LIBS = ${Trilinos_BUILD_SHARED_LIBS}")
+MESSAGE("End of Trilinos details\n")
+
+
+#
+# End of setup and error checking
+
+
+
+
+
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${pde_bd_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${pde_bd_BINARY_DIR}/lib)

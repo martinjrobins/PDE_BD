@@ -1,13 +1,13 @@
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 file(GLOB pde_bd_SOURCES "*.cpp")
 
-FIND_PACKAGE(PythonInterp)
-FIND_PACKAGE(PythonLibs)
-FIND_PACKAGE(Boost COMPONENTS python)
+
 
 ENABLE_TESTING()
-INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIRS} ${PYTHON_INCLUDE_DIRS})
-LINK_LIBRARIES(${Boost_LIBRARIES}) # Deprecated but so convenient!
-
+INCLUDE_DIRECTORIES(${MPI_CXX_INCLUDE_PATH} ${Boost_INCLUDE_DIRS} ${PYTHON_INCLUDE_DIRS} ${Trilinos_INCLUDE_DIRS} ${Trilinos_TPL_INCLUDE_DIRS})
+LINK_DIRECTORIES(${Trilinos_LIBRARY_DIRS} ${Trilinos_TPL_LIBRARY_DIRS})
 PYTHON_ADD_MODULE(pde_bd ${pde_bd_SOURCES})
+TARGET_LINK_LIBRARIES(pde_bd ${Boost_LIBRARIES} ${Trilinos_LIBRARIES} ${Trilinos_TPL_LIBRARIES}) # Deprecated but so convenient!
 
+#enable_testing()
+#add_test(NAME MyTest COMMAND MyApp.exe)
