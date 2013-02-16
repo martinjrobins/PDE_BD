@@ -10,6 +10,9 @@ FIND_PACKAGE(PythonLibs REQUIRED)
 FIND_PACKAGE(Boost COMPONENTS python REQUIRED)
 FIND_PACKAGE(MPI REQUIRED)
 
+set(CMAKE_CXX_COMPILE_FLAGS ${CMAKE_CXX_COMPILE_FLAGS} ${MPI_COMPILE_FLAGS})
+set(CMAKE_CXX_LINK_FLAGS ${CMAKE_CXX_LINK_FLAGS} ${MPI_LINK_FLAGS})
+
 SET(Trilinos_PREFIX $ENV{HOME}/pkg/Trilinos/debug)
 message(STATUS ${Trilinos_PREFIX})
 SET(CMAKE_PREFIX_PATH ${Trilinos_PREFIX} ${CMAKE_PREFIX_PATH})
@@ -36,14 +39,6 @@ MESSAGE("   Trilinos_BUILD_SHARED_LIBS = ${Trilinos_BUILD_SHARED_LIBS}")
 MESSAGE("End of Trilinos details\n")
 
 
-#
-# End of setup and error checking
-
-
-
-
-
-
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${pde_bd_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${pde_bd_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${pde_bd_BINARY_DIR}/bin)
@@ -55,7 +50,10 @@ set(CMAKE_MODULE_PATH ${pde_bd_SOURCE_DIR}/cmake/modules ${CMAKE_MODULE_PATH})
 # The macro below forces the build directory to be different from source directory:
 include(MacroOutOfSourceBuild)
 
+enable_testing()
 # Recurse into the "Hello" and "Demo" subdirectories. This does not actually 
 # cause another cmake executable to run. The same process will walk through 
 # the project's entire directory structure. 
 add_subdirectory (src)
+add_subdirectory (python)
+add_subdirectory (tests)

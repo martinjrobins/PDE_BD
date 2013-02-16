@@ -1,5 +1,5 @@
 /* 
- * python.cpp
+ * test_init.cpp
  *
  * Copyright 2012 Martin Robinson
  *
@@ -18,26 +18,14 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with PDE_BD.  If not, see <http://www.gnu.org/licenses/>.
  *
- *  Created on: Feb 9, 2013
+ *  Created on: Feb 16, 2013
  *      Author: mrobins
  */
+#include "Pde_bd.h"
 
-
-#include <boost/python.hpp>
-#include "Pde.h"
-#include "Species.h"
-
-using namespace boost::python;
-
-BOOST_PYTHON_MODULE(pde_bd) {
-	class_<Pde>("Pde", init<const char*, const double>())
-			.def("integrate",&Pde::integrate)
-			.def("add_particle",&Pde::add_particle)
-			.def("init", &Pde::init,
-					return_value_policy<manage_new_object>() )
-			.staticmethod("init")
-			;
-    class_<Species>("Species");
+int main(int argc, char **argv) {
+	Pde::init(argc,argv);
 }
+
 
 

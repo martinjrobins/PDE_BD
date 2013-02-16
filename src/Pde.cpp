@@ -28,8 +28,11 @@
 #include "Log.h"
 #include "Constants.h"
 
+int Pde::my_rank;
+int Pde::num_procs;
+RCP<Teuchos::GlobalMPISession> Pde::mpiSession;
 
-Pde::Pde(const char* filename, const ST dt):dt(dt),dirac_width(0.1) {
+Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 
 	// Get the default communicator and Kokkos Node instance
 	comm = Tpetra::DefaultPlatform::getDefaultPlatform ().getComm ();
@@ -37,7 +40,7 @@ Pde::Pde(const char* filename, const ST dt):dt(dt),dirac_width(0.1) {
 
 
 	std::string meshInput;
-	meshInput = makeMeshInput(5, 5, 5);
+	meshInput = makeMeshInput(1.0/dx, 1.0/dx, 1.0/dx);
 
 	setup_pamgen_mesh(meshInput);
 
@@ -1058,11 +1061,13 @@ void Pde::evaluateMaterialTensor (ArrayOut& matTensorValues, const ArrayIn& eval
 }
 
 void Pde::init(int argc, char *argv[]) {
-	Teuchos::oblackholestream blackHole;
-	Teuchos::GlobalMPISession mpiSession (&argc, &argv, &blackHole);
-	my_rank = mpiSession.getRank();
-	num_procs = mpiSession.getNProc();
+	//Teuchos::oblackholestream blackHole;
+	mpiSession = rcp (new Teuchos::GlobalMPISession(&argc, &argv));
+	my_rank = mpiSession->getRank();
+	num_procs = mpiSession->getNProc();
 }
+
+
 
 
 void Pde::solve() {

@@ -60,6 +60,7 @@
 // Belos includes
 #include <BelosTpetraAdapter.hpp>
 
+
 using Teuchos::RCP;
 		using Teuchos::rcp;
 
@@ -82,7 +83,7 @@ class Pde {
 
 
 public:
-	Pde(const char* filename, const double dt);
+	Pde(const ST dt, const ST dx);
 	~Pde() {
 		delete [] node_is_owned;
 		node_is_owned = NULL;
@@ -97,6 +98,7 @@ private:
 	 */
 	static int my_rank;
 	static int num_procs;
+	static RCP<Teuchos::GlobalMPISession> mpiSession;
 	RCP<const Teuchos::Comm<int> > comm;
 	RCP<Node> node;
 
