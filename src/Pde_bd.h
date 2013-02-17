@@ -27,6 +27,8 @@
 
 #include "Pde.h"
 #include "Species.h"
+#include "Io.h"
+#include "MyMpi.h"
 
 
 #endif /* PDE_BD_H_ */

@@ -1,5 +1,5 @@
 /* 
- * test_pde_constructor.cpp
+ * io.cpp
  *
  * Copyright 2012 Martin Robinson
  *
@@ -22,12 +22,22 @@
  *      Author: mrobins
  */
 
-#include "Pde_bd.h"
+#include "Io.h"
+#include "MyMpi.h"
+#include "vtkXMLPUnstructuredGridWriter.h"
+#include "vtkSmartPointer.h"
 
-int main(int argc, char **argv) {
-	Mpi::init(argc,argv);
-	Pde p(0.1,0.1);
-	Io::write_grid("test",p.get_grid());
+
+void Io::write_grid(std::string filename, vtkUnstructuredGrid* grid) {
+	const int my_rank = Mpi::mpiSession->getRank();
+	const int num_procs = Mpi::mpiSession->getNProc();
+	vtkSmartPointer<vtkXMLPUnstructuredGridWriter> writer =
+			vtkSmartPointer<vtkXMLPUnstructuredGridWriter>::New();
+	writer->SetNumberOfPieces(num_procs);
+	writer->SetStartPiece(my_rank);
+	writer->SetEndPiece(my_rank);
+	writer->SetInput(grid);
+	writer->SetDataModeToBinary();
+	writer->SetFileName(filename.c_str());
+	writer->Write();
 }
-
-

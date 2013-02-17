@@ -27,12 +27,13 @@
 #include "TrilinosSolve.h"
 #include "Log.h"
 #include "Constants.h"
+#include "MyMpi.h"
+#include <vtkPointData.h>
 
-int Pde::my_rank;
-int Pde::num_procs;
-RCP<Teuchos::GlobalMPISession> Pde::mpiSession;
 
 Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
+	my_rank = Mpi::mpiSession->getRank();
+	num_procs = Mpi::mpiSession->getNProc();
 
 	// Get the default communicator and Kokkos Node instance
 	comm = Tpetra::DefaultPlatform::getDefaultPlatform ().getComm ();
@@ -47,6 +48,7 @@ Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 
 	create_cubature_and_basis();
 	build_maps_and_create_matrices();
+	create_vtk_grid();
 	make_LHS_and_RHS();
 }
 
@@ -55,7 +57,7 @@ void Pde::add_particle(const ST x, const ST y, const ST z) {
 	typedef STS::magnitudeType MT;
 	typedef Teuchos::ScalarTraits<MT> STM;
 
-	const int numNodes = node_coord.size();
+	const int numNodes = node_coord.dimension(0);
 	for (int i=0; i<numNodes; i++) {
 		if (node_is_owned[i]) {
 			const ST dx = node_coord(i,0) - x;
@@ -1060,12 +1062,6 @@ void Pde::evaluateMaterialTensor (ArrayOut& matTensorValues, const ArrayIn& eval
   }
 }
 
-void Pde::init(int argc, char *argv[]) {
-	//Teuchos::oblackholestream blackHole;
-	mpiSession = rcp (new Teuchos::GlobalMPISession(&argc, &argv));
-	my_rank = mpiSession->getRank();
-	num_procs = mpiSession->getNProc();
-}
 
 
 
@@ -1125,4 +1121,48 @@ std::string Pde::makeMeshInput (const int nx, const int ny, const int nz) {
      << "end";
   return os.str ();
 }
+
+vtkUnstructuredGrid* Pde::get_grid() {
+	return vtk_grid;
+}
+
+void Pde::create_vtk_grid() {
+	/*
+	 * setup points
+	 */
+	vtkSmartPointer<vtkPoints> newPts = vtkSmartPointer<vtkPoints>::New();
+	const int num_points = node_coord.dimension(0);
+	for (int i = 0; i < num_points; i++) {
+		newPts->InsertNextPoint(node_coord(i,0),node_coord(i,1),node_coord(i,2));
+	}
+
+	/*
+	 * setup scalar data
+	 */
+	vtkSmartPointer<vtkDoubleArray> newScalars = vtkSmartPointer<vtkDoubleArray>::New();
+	const int num_local_entries = X->getLocalLength();
+	ASSERT(num_local_entries == num_points, "size in X vector not same as number of points");
+	newScalars->SetArray(X->getDataNonConst(0).getRawPtr(),num_local_entries,1);
+	newScalars->SetName("Concentration");
+
+	/*
+	 * setup cells
+	 */
+	const int num_cells = elem_to_node.dimension(0);
+	vtk_grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
+	vtk_grid->Allocate(num_cells,num_cells);
+	vtk_grid->SetPoints(newPts);
+	vtk_grid->GetPointData()->SetScalars(newScalars);
+	const int num_points_per_cell = elem_to_node.dimension(1);
+	for (int i = 0; i < num_cells; ++i) {
+		vtkSmartPointer<vtkHexahedron> newHex = vtkSmartPointer<vtkHexahedron>::New();
+		newHex->GetPointIds()-> SetNumberOfIds(num_points_per_cell);
+		for (int j = 0; j < num_points_per_cell; ++j) {
+			newHex->GetPointIds()-> SetId(j,elem_to_node(i,j));
+		}
+		vtk_grid->InsertNextCell(newHex->GetCellType(),newHex->GetPointIds());
+
+	}
+}
+
 

@@ -60,6 +60,11 @@
 // Belos includes
 #include <BelosTpetraAdapter.hpp>
 
+// vtk includes
+#include "vtkUnstructuredGrid.h"
+#include "vtkSmartPointer.h"
+#include "vtkDoubleArray.h"
+#include "vtkHexahedron.h"
 
 using Teuchos::RCP;
 		using Teuchos::rcp;
@@ -87,18 +92,20 @@ public:
 	~Pde() {
 		delete [] node_is_owned;
 		node_is_owned = NULL;
+		// Get a summary from the time monitor.
+		Teuchos::TimeMonitor::summarize();
 	}
 	void integrate(const ST dt);
 	void add_particle(const ST x, const ST y, const ST z);
-	static void init(int argc, char *argv[]);
+	vtkUnstructuredGrid* get_grid();
 private:
 
 	/*
 	 * MPI
 	 */
-	static int my_rank;
-	static int num_procs;
-	static RCP<Teuchos::GlobalMPISession> mpiSession;
+	int my_rank;
+	int num_procs;
+
 	RCP<const Teuchos::Comm<int> > comm;
 	RCP<Node> node;
 
@@ -152,6 +159,11 @@ private:
 	ST dt;
 	const static ST omega = 0.5;
 
+	/*
+	 * vtk unstructured grid
+	 */
+	vtkSmartPointer<vtkUnstructuredGrid> vtk_grid;
+
 
 	void setup_pamgen_mesh(const std::string& meshInput);
 	void create_cubature_and_basis();
@@ -160,6 +172,7 @@ private:
 	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 	void solve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
+	void create_vtk_grid();
 
 
 	template<typename Scalar>

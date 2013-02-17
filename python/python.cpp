@@ -39,7 +39,7 @@ void pde_init(boost::python::list& py_argv) {
 		argv[i] = new char[this_argv.size()];
 		std::strcpy(argv[i],this_argv.c_str());
 	}
-	Pde::init(argc,argv);
+	Mpi::init(argc,argv);
 	for (int i = 0; i < len(py_argv); ++i) {
 		delete argv[i];
 	}
@@ -48,11 +48,13 @@ void pde_init(boost::python::list& py_argv) {
 
 
 
-BOOST_PYTHON_MODULE(pde_bd) {
+BOOST_PYTHON_MODULE(pypdb) {
 	def("init", pde_init);
+	def("write_grid", Io::write_grid);
 	class_<Pde>("Pde", init<const double, const double>())
 			.def("integrate",&Pde::integrate)
 			.def("add_particle",&Pde::add_particle)
+			.def("get_grid",&Pde::get_grid, return_value_policy<return_opaque_pointer>())
 			;
     class_<Species>("Species");
 }

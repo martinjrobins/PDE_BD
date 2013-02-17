@@ -1,5 +1,5 @@
 /* 
- * test_pde_constructor.cpp
+ * mpi.h
  *
  * Copyright 2012 Martin Robinson
  *
@@ -22,12 +22,15 @@
  *      Author: mrobins
  */
 
-#include "Pde_bd.h"
+#ifndef MYMPI_H_
+#define MYMPI_H_
 
-int main(int argc, char **argv) {
-	Mpi::init(argc,argv);
-	Pde p(0.1,0.1);
-	Io::write_grid("test",p.get_grid());
-}
+#include "Teuchos_GlobalMPISession.hpp"
+#include "Teuchos_RCP.hpp"
 
+namespace Mpi {
+	extern Teuchos::RCP<Teuchos::GlobalMPISession> mpiSession;
+	void init(int argc, char *argv[]);
+};
 
+#endif /* MPI_H_ */

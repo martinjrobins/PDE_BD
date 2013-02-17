@@ -1,5 +1,5 @@
 /* 
- * test_pde_constructor.cpp
+ * io.h
  *
  * Copyright 2012 Martin Robinson
  *
@@ -22,12 +22,14 @@
  *      Author: mrobins
  */
 
-#include "Pde_bd.h"
+#ifndef IO_H_
+#define IO_H_
 
-int main(int argc, char **argv) {
-	Mpi::init(argc,argv);
-	Pde p(0.1,0.1);
-	Io::write_grid("test",p.get_grid());
-}
+#include <string>
+#include <vtkUnstructuredGrid.h>
 
+namespace Io {
+	void write_grid(std::string filename, vtkUnstructuredGrid* grid);
+};
 
+#endif /* IO_H_ */

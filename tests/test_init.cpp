@@ -24,7 +24,7 @@
 #include "Pde_bd.h"
 
 int main(int argc, char **argv) {
-	Pde::init(argc,argv);
+	Mpi::init(argc,argv);
 }
 
 

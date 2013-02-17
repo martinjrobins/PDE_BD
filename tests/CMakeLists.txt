@@ -1,4 +1,4 @@
-INCLUDE_DIRECTORIES(${pde_bd_SOURCE_DIR}/src ${Boost_INCLUDE_DIRS} ${PYTHON_INCLUDE_DIRS} ${MPI_CXX_INCLUDE_PATH} ${Trilinos_INCLUDE_DIRS} ${Trilinos_TPL_INCLUDE_DIRS})
+include_directories(${PDE_BD_INCLUDE_DIRECTORIES})
 LINK_DIRECTORIES(${pde_bd_BINARY_DIR}/lib)
 
 add_executable (test_init test_init.cpp) 

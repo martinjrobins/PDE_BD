@@ -9,10 +9,11 @@ FIND_PACKAGE(PythonInterp REQUIRED)
 FIND_PACKAGE(PythonLibs REQUIRED)
 FIND_PACKAGE(Boost COMPONENTS python REQUIRED)
 FIND_PACKAGE(MPI REQUIRED)
+find_package(VTK REQUIRED)
 
-set(CMAKE_CXX_COMPILE_FLAGS ${CMAKE_CXX_COMPILE_FLAGS} ${MPI_COMPILE_FLAGS})
+set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${MPI_COMPILE_FLAGS})
 set(CMAKE_CXX_LINK_FLAGS ${CMAKE_CXX_LINK_FLAGS} ${MPI_LINK_FLAGS})
-
+set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-Wno-deprecated")
 SET(Trilinos_PREFIX $ENV{HOME}/pkg/Trilinos/debug)
 message(STATUS ${Trilinos_PREFIX})
 SET(CMAKE_PREFIX_PATH ${Trilinos_PREFIX} ${CMAKE_PREFIX_PATH})
@@ -54,6 +55,7 @@ enable_testing()
 # Recurse into the "Hello" and "Demo" subdirectories. This does not actually 
 # cause another cmake executable to run. The same process will walk through 
 # the project's entire directory structure. 
+set(PDE_BD_INCLUDE_DIRECTORIES ${pde_bd_SOURCE_DIR}/src ${VTK_INCLUDE_DIRS} ${MPI_CXX_INCLUDE_PATH} ${Trilinos_INCLUDE_DIRS} ${Trilinos_TPL_INCLUDE_DIRS})
 add_subdirectory (src)
 add_subdirectory (python)
 add_subdirectory (tests)
