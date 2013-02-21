@@ -24,6 +24,7 @@
 
 
 #include <boost/python.hpp>
+#include <boost/python/suite/indexing/vector_indexing_suite.hpp>
 #include "Pde_bd.h"
 
 
@@ -57,6 +58,20 @@ BOOST_PYTHON_MODULE(pypdb) {
 			.def("get_grid",&Pde::get_grid, return_value_policy<return_opaque_pointer>())
 			;
     class_<Species>("Species");
+    class_<std::vector<double> >("DoubleList")
+    	    .def(vector_indexing_suite<std::vector<double> >())
+    	    ;
+    class_<MoleculesSimple>("Molecules")
+    		.def("add_particle",&MoleculesSimple::add_particle)
+    		.def("remove_particle",&MoleculesSimple::remove_particle)
+    		.def("diffuse",&MoleculesSimple::diffuse)
+    		.def("get_x",&MoleculesSimple::get_x,
+    	            return_value_policy<reference_existing_object>())
+    		.def("get_y",&MoleculesSimple::get_y,
+    	            return_value_policy<reference_existing_object>())
+    		.def("get_z",&MoleculesSimple::get_z,
+    	            return_value_policy<reference_existing_object>())
+    		;
 }
 
 

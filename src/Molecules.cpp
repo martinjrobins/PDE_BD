@@ -23,21 +23,44 @@
  */
 
 #include "Molecules.h"
+#include <Teuchos_ArrayView.hpp>
 
 Molecules::Molecules() {
 	using Tpetra::Map;
-	using Tpetra::ArrayView;
-	const int my_rank = Mpi::mpiSession->getRank();
-	const int num_procs = Mpi::mpiSession->getNProc();
+	using Teuchos::ArrayView;
+	my_rank = Mpi::mpiSession->getRank();
+	num_procs = Mpi::mpiSession->getNProc();
 	// Get the default communicator and Kokkos Node instance
 	comm = Tpetra::DefaultPlatform::getDefaultPlatform ().getComm ();
 	node = Tpetra::DefaultPlatform::getDefaultPlatform ().getNode ();
-	gids_data.push_back(my_rank);
-	map_data = rcp(new Map(num_procs,ArrayView(gids_data),0,comm,node));
-	pos_data = rcp(new multivector_type(map_data,3));
+	gids.push_back(my_rank);
+	map_allocate = rcp(new Map(num_procs,ArrayView(gids),0,comm,node));
+	pos_allocate = rcp(new multivector_type(map_allocate,3));
+	alive = rcp(new vector_int_type(map_allocate));
+	num_local_particles = 0;
+	num_global_particles = 0;
+	num_allocated_particles = 1;
+	map = rcp(new Map(num_procs));
+	pos = pos_allocate->offsetViewNonConst(map,0);
 }
 
 void Molecules::add_particle(const ST x, const ST Y, const ST z) {
+	if (num_local_particles == num_allocated_particles) {
+		for (int i = num_allocated_particles; i < 2*num_allocated_particles; ++i) {
+			gids.push_back(i*num_procs + my_rank);
+		}
+		/*
+		 * allocate new space
+		 */
+		RCP<map_type> new_map_allocate = rcp(new Map(num_procs,ArrayView(gids),0,comm,node));
+		RCP<multivector_type> new_pos_allocate = rcp(new multivector_type(map_allocate,3));
+		RCP<vector_int_type> new_alive = rcp(new vector_int_type(map_allocate));
+		/*
+		 * copy old data across
+		 */
+
+	}
+	pos
 }
 
 void Molecules::remove_particle(const GO i) {

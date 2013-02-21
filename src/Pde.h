@@ -121,8 +121,8 @@ private:
 	/*
 	 * Matricies
 	 */
-	RCP<sparse_matrix_type> LHS,RHS;
-	RCP<vector_type> X;
+	RCP<sparse_matrix_type> LHS,RHS,boundary_grad_op;
+	RCP<vector_type> X,X_grad;
 
 
 	/*
@@ -131,9 +131,11 @@ private:
 	ST dirac_width;
 	const static int spaceDim = 3;
 	Intrepid::FieldContainer<int> elem_to_node;
+	Intrepid::FieldContainer<int> elemToFace;
 	Intrepid::FieldContainer<ST> node_coord;
 	Teuchos::Array<long long> global_node_ids;
 	Teuchos::Array<int> BCNodes;
+	Teuchos::Array<int> boundary_elems;
 	Intrepid::FieldContainer<int> node_on_boundary;
 	// nodeIsOwned must be a raw array, because std::vector<T> (and
 	// therefore Teuchos::Array<T>) has a specialization for T = bool
@@ -149,6 +151,8 @@ private:
 	RCP<Intrepid::Cubature<ST> > cubature;
 	Intrepid::FieldContainer<ST> cubPoints;
 	Intrepid::FieldContainer<ST> cubWeights;
+	Intrepid::FieldContainer<ST> paramFacePoints;
+	Intrepid::FieldContainer<ST> paramFaceWeights;
 	RCP<Intrepid::Basis<ST, Intrepid::FieldContainer<ST> > >  HGradBasis;
 	Intrepid::FieldContainer<ST> HGBValues;
 	Intrepid::FieldContainer<ST> HGBGrads;
@@ -157,7 +161,7 @@ private:
 	 * Timestepping
 	 */
 	ST dt;
-	const static ST omega = 0.5;
+	constexpr static ST omega = 0.5;
 
 	/*
 	 * vtk unstructured grid

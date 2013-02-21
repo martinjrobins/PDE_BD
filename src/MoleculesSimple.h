@@ -1,7 +1,7 @@
-/* 
- * pde_bd.h
- *
- * Copyright 2012 Martin Robinson
+/*
+ * MoleculesSimple.h
+ * 
+ * Copyright 2013 Martin Robinson
  *
  * This file is part of PDE_BD.
  *
@@ -18,18 +18,29 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with PDE_BD.  If not, see <http://www.gnu.org/licenses/>.
  *
- *  Created on: Feb 16, 2013
- *      Author: mrobins
+ *  Created on: 21 Feb 2013
+ *      Author: robinsonm
  */
 
-#ifndef PDE_BD_H_
-#define PDE_BD_H_
+#ifndef MOLECULESSIMPLE_H_
+#define MOLECULESSIMPLE_H_
 
-#include "Pde.h"
-#include "Species.h"
-#include "Io.h"
-#include "MyMpi.h"
-#include "MoleculesSimple.h"
+#include <vector>
+#include <trng/yarn2.hpp>
+#include <trng/config.hpp>
 
+class MoleculesSimple {
+public:
+	MoleculesSimple();
+	void add_particle(const double x, const double Y, const double z);
+	void remove_particle(const int i);
+	void diffuse(const double dt, const double D);
+	const std::vector<double>& get_x() {return x;}
+	const std::vector<double>& get_y() {return y;}
+	const std::vector<double>& get_z() {return z;}
+private:
+	std::vector<double> x,y,z;
+	trng::yarn2 R;
+};
 
-#endif /* PDE_BD_H_ */
+#endif /* MOLECULESSIMPLE_H_ */

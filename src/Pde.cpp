@@ -29,6 +29,7 @@
 #include "Constants.h"
 #include "MyMpi.h"
 #include <vtkPointData.h>
+#include <set>
 
 
 Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
@@ -75,6 +76,14 @@ void Pde::add_particle(const ST x, const ST y, const ST z) {
 	} // loop through all nodes
 }
 
+struct fecomp{
+	bool operator () ( topo_entity* x,  topo_entity*  y )const
+	{
+		if(x->sorted_local_node_ids < y->sorted_local_node_ids)return true;
+		return false;
+	}
+};
+
 void Pde::setup_pamgen_mesh(const std::string& meshInput){
 	using namespace Intrepid;
 	using Teuchos::Array;
@@ -89,8 +98,44 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 
 	// Get dimensions
 	int numNodesPerElem = cellType.getNodeCount();
+	int numFacesPerElem = cellType.getSideCount();
+	int numEdgesPerElem = cellType.getEdgeCount();
+	int numNodesPerEdge = 2;
+	int numNodesPerFace = 4;
+	int numEdgesPerFace = 4;
 	int spaceDim = cellType.getDimension();
 	int dim = 3;
+
+	// Build reference element edge to node map
+	FieldContainer<int> refEdgeToNode(numEdgesPerElem,numNodesPerEdge);
+	for (int i=0; i<numEdgesPerElem; i++){
+		refEdgeToNode(i,0)=cellType.getNodeMap(1, i, 0);
+		refEdgeToNode(i,1)=cellType.getNodeMap(1, i, 1);
+	}
+
+	// Build reference element face to node map
+	FieldContainer<int> refFaceToNode(numFacesPerElem,numNodesPerFace);
+	for (int i=0; i<numFacesPerElem; i++){
+		refFaceToNode(i,0)=cellType.getNodeMap(2, i, 0);
+		refFaceToNode(i,1)=cellType.getNodeMap(2, i, 1);
+		refFaceToNode(i,2)=cellType.getNodeMap(2, i, 2);
+		refFaceToNode(i,3)=cellType.getNodeMap(2, i, 3);
+	}
+
+	// Build reference element face to edge map (Hardcoded for now)
+	FieldContainer<int> refFaceToEdge(numFacesPerElem,numEdgesPerFace);
+	refFaceToEdge(0,0)=0; refFaceToEdge(0,1)=9;
+	refFaceToEdge(0,2)=4; refFaceToEdge(0,3)=8;
+	refFaceToEdge(1,0)=1; refFaceToEdge(1,1)=10;
+	refFaceToEdge(1,2)=5; refFaceToEdge(1,3)=9;
+	refFaceToEdge(2,0)=2; refFaceToEdge(2,1)=11;
+	refFaceToEdge(2,2)=6; refFaceToEdge(2,3)=10;
+	refFaceToEdge(3,0)=8; refFaceToEdge(3,1)=7;
+	refFaceToEdge(3,2)=11; refFaceToEdge(3,3)=3;
+	refFaceToEdge(4,0)=3; refFaceToEdge(4,1)=2;
+	refFaceToEdge(4,2)=1; refFaceToEdge(4,3)=0;
+	refFaceToEdge(5,0)=4; refFaceToEdge(5,1)=5;
+	refFaceToEdge(5,2)=6; refFaceToEdge(5,3)=7;
 
 	/**********************************************************************************/
 	/******************************* GENERATE MESH ************************************/
@@ -264,6 +309,69 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 			node_comm_proc_ids,
 			comm_node_ids,
 			my_rank);
+
+
+
+	 elemToFace.resize(numElems,numFacesPerElem);
+	 //FieldContainer<int> elemToEdge(numElems,numEdgesPerElem);
+	 std::set < topo_entity * , fecomp > edge_set;
+	 std::set < topo_entity * , fecomp > face_set;
+	 std::vector < topo_entity * > edge_vector;
+	 std::vector < topo_entity * > face_vector;
+
+	 // calculate edge and face ids
+	 int elct = 0;
+	 for(long long b = 0; b < numElemBlk; b++){
+		 if(nodes_per_element[b] == 4){
+		 }
+		 else if (nodes_per_element[b] == 8){
+			 //loop over all elements and push their edges onto a set if they are not there already
+			 for(long long el = 0; el < elements[b]; el++){
+				 std::set< topo_entity *, fecomp > ::iterator fit;
+//				 for (int i=0; i < numEdgesPerElem; i++){
+//					 topo_entity * teof = new topo_entity;
+//					 for(int j = 0; j < numNodesPerEdge;j++){
+//						 teof->add_node(elmt_node_linkage[b][el*numNodesPerElem + refEdgeToNode(i,j)],global_node_ids.begin().getRawPtr());
+//					 }
+//					 teof->sort();
+//					 fit = edge_set.find(teof);
+//					 if(fit == edge_set.end()){
+//						 teof->local_id = edge_vector.size();
+//						 edge_set.insert(teof);
+//						 elemToEdge(elct,i)= edge_vector.size();
+//						 edge_vector.push_back(teof);
+//					 }
+//					 else{
+//						 elemToEdge(elct,i) = (*fit)->local_id;
+//						 delete teof;
+//					 }
+//				 }
+				 for (int i=0; i < numFacesPerElem; i++){
+					 topo_entity * teof = new topo_entity;
+					 for(int j = 0; j < numNodesPerFace;j++){
+						 teof->add_node(elmt_node_linkage[b][el*numNodesPerElem + refFaceToNode(i,j)],global_node_ids.begin().getRawPtr());
+					 }
+					 teof->sort();
+					 fit = face_set.find(teof);
+					 if(fit == face_set.end()){
+						 teof->local_id = face_vector.size();
+						 face_set.insert(teof);
+						 elemToFace(elct,i)= face_vector.size();
+						 face_vector.push_back(teof);
+					 }
+					 else{
+						 elemToFace(elct,i) = (*fit)->local_id;
+						 delete teof;
+					 }
+				 }
+				 elct ++;
+			 }
+		 }
+	 }
+
+	 int numFaces = face_vector.size();
+
+
 	//
 	// Mesh cleanup
 	//
@@ -302,11 +410,13 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 
 	// Container indicating whether a node is on the boundary (1-yes 0-no)
 	node_on_boundary.resize(numNodes);
+	FieldContainer<int> faceOnBoundary(numFaces);
 
 	// Get boundary (side set) information
 	long long * sideSetIds = new long long [numSideSets];
 	long long numSidesInSet;
 	long long numDFinSet;
+	int numBndyFaces=0;
 	im_ex_get_side_set_ids_l(id,sideSetIds);
 	for (int i=0; i < numSideSets; ++i) {
 		im_ex_get_side_set_param_l (id,sideSetIds[i], &numSidesInSet, &numDFinSet);
@@ -315,15 +425,21 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 			long long * sideSetSideList = new long long [numSidesInSet];
 			im_ex_get_side_set_l (id, sideSetIds[i], sideSetElemList, sideSetSideList);
 			for (int j = 0; j < numSidesInSet; ++j) {
-				int sideNode0 = cellType.getNodeMap(2,sideSetSideList[j]-1,0);
-				int sideNode1 = cellType.getNodeMap(2,sideSetSideList[j]-1,1);
-				int sideNode2 = cellType.getNodeMap(2,sideSetSideList[j]-1,2);
-				int sideNode3 = cellType.getNodeMap(2,sideSetSideList[j]-1,3);
+				const int iface = sideSetSideList[j]-1;
+				const int ielem = sideSetElemList[j]-1;
 
-				node_on_boundary(elem_to_node(sideSetElemList[j]-1,sideNode0))=1;
-				node_on_boundary(elem_to_node(sideSetElemList[j]-1,sideNode1))=1;
-				node_on_boundary(elem_to_node(sideSetElemList[j]-1,sideNode2))=1;
-				node_on_boundary(elem_to_node(sideSetElemList[j]-1,sideNode3))=1;
+				int sideNode0 = cellType.getNodeMap(2,iface,0);
+				int sideNode1 = cellType.getNodeMap(2,iface,1);
+				int sideNode2 = cellType.getNodeMap(2,iface,2);
+				int sideNode3 = cellType.getNodeMap(2,iface,3);
+
+				faceOnBoundary(elemToFace(ielem,iface)) = 1;
+				numBndyFaces++;
+
+				node_on_boundary(elem_to_node(ielem,sideNode0)) = 1;
+				node_on_boundary(elem_to_node(ielem,sideNode1)) = 1;
+				node_on_boundary(elem_to_node(ielem,sideNode2)) = 1;
+				node_on_boundary(elem_to_node(ielem,sideNode3)) = 1;
 			}
 			delete [] sideSetElemList;
 			delete [] sideSetSideList;
@@ -381,6 +497,27 @@ void Pde::create_cubature_and_basis() {
 	cubature->getCubature (cubPoints, cubWeights);
 
 	/**********************************************************************************/
+	/*     Get numerical integration points and weights for hexahedron face           */
+	/*                  (needed for rhs boundary term)                                */
+	/**********************************************************************************/
+
+	// Define topology of the face parametrization domain as [-1,1]x[-1,1]
+	CellTopology paramQuadFace(shards::getCellTopologyData<shards::Quadrilateral<4> >() );
+
+	// Define cubature
+	DefaultCubatureFactory<double>  cubFactoryFace;
+	Teuchos::RCP<Cubature<double> > hexFaceCubature = cubFactoryFace.create(paramQuadFace, 3);
+	int cubFaceDim    = hexFaceCubature -> getDimension();
+	int numFacePoints = hexFaceCubature -> getNumPoints();
+
+	// Define storage for cubature points and weights on [-1,1]x[-1,1]
+	paramFaceWeights.resize(numFacePoints);
+	paramFacePoints.resize(numFacePoints,cubFaceDim);
+
+	// Define storage for cubature points on workset faces
+	hexFaceCubature -> getCubature(paramFacePoints, paramFaceWeights);
+
+	/**********************************************************************************/
 	/*********************************** GET BASIS ************************************/
 	/**********************************************************************************/
 
@@ -407,6 +544,9 @@ void Pde::create_cubature_and_basis() {
 	// Evaluate basis values and gradients at cubature points
 	HGradBasis->getValues(HGBValues, cubPoints, OPERATOR_VALUE);
 	HGradBasis->getValues(HGBGrads, cubPoints, OPERATOR_GRAD);
+
+
+
 }
 
 void Pde::build_maps_and_create_matrices() {
@@ -556,6 +696,7 @@ void Pde::build_maps_and_create_matrices() {
 	//
 	LHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
 	RHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
+	boundary_grad_op = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
 	//F = rcp (new vector_type (globalMapG));
 	X = rcp (new vector_type (globalMapG));
 
@@ -572,7 +713,15 @@ void Pde::integrate(const ST requested_dt) {
 	const double actual_dt = iterations*requested_dt;
 	std::cout << "integrating for "<<actual_dt<<" seconds." << std::endl;
 	for (int i = 0; i < iterations; ++i) {
+		/*
+		 * Solve FEM system
+		 */
 		solve();
+
+		/*
+		 * calculate gradient
+		 */
+		boundary_grad_op->apply(*X.getConst(),*X_grad);
 	}
 }
 
@@ -617,6 +766,9 @@ void Pde::make_LHS_and_RHS () {
 	RCP<sparse_matrix_type> oRHS=
 			rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
 	oRHS->setAllToScalar (STS::zero ());
+	RCP<sparse_matrix_type> oboundary_grad_op =
+				rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
+	oboundary_grad_op->setAllToScalar (STS::zero ());
 
 
 	/**********************************************************************************/
@@ -655,13 +807,75 @@ void Pde::make_LHS_and_RHS () {
 		worksetSize = worksetEnd - worksetBegin;
 		FieldContainer<ST> cellWorkset (worksetSize, numNodesPerElem, spaceDim);
 
+		// array to contain boundary normals (=0 if not on boundary)
+		FieldContainer<ST> boundary_normals(worksetSize, spaceDim);
+
 		// Copy coordinates into cell workset
 		int cellCounter = 0;
 		for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
+			std::vector<int> boundary_nodes;
 			for (int node = 0; node < numNodesPerElem; ++node) {
-				cellWorkset(cellCounter, node, 0) = node_coord( elem_to_node(cell, node), 0);
-				cellWorkset(cellCounter, node, 1) = node_coord( elem_to_node(cell, node), 1);
-				cellWorkset(cellCounter, node, 2) = node_coord( elem_to_node(cell, node), 2);
+				const int node_num = elem_to_node(cell, node);
+				if (node_on_boundary(node_num)) {
+					boundary_nodes.push_back(node_num);
+				}
+				cellWorkset(cellCounter, node, 0) = node_coord(node_num, 0);
+				cellWorkset(cellCounter, node, 1) = node_coord(node_num, 1);
+				cellWorkset(cellCounter, node, 2) = node_coord(node_num, 2);
+
+			}
+//			for (int iface=0; iface<numFacesPerElem; iface++){
+//			          if(faceOnBoundary(elemToFace(ielem,iface))){
+//
+//			          // map evaluation points from reference face to reference cell
+//			             IntrepidCTools::mapToReferenceSubcell(refFacePoints,
+//			                                   paramFacePoints,
+//			                                   2, iface, cellType);
+//
+//			          // calculate Jacobian
+//			             IntrepidCTools::setJacobian(bndyFaceJacobians, refFacePoints,
+//			                         nodes, cellType);
+//
+//			          // map evaluation points from reference cell to physical cell
+//			             IntrepidCTools::mapToPhysicalFrame(bndyFacePoints,
+//			                                refFacePoints,
+//			                                nodes, cellType);
+//
+//			          // Compute face normals
+//			             IntrepidCTools::getPhysicalFaceNormals(faceNorm,
+//			                                              bndyFaceJacobians,
+//			                                              iface, cellType);
+//
+//			          // evaluate exact solution and dot with normal
+//			           for(int nPt = 0; nPt < numFacePoints; nPt++){
+//
+//			             double x = bndyFacePoints(0, nPt, 0);
+//			             double y = bndyFacePoints(0, nPt, 1);
+//			             double z = bndyFacePoints(0, nPt, 2);
+//
+//			             evalu(uFace(nPt,0), uFace(nPt,1), uFace(nPt,2), x, y, z);
+//			             uDotNormal(0,nPt)=(uFace(nPt,0)*faceNorm(0,nPt,0)+uFace(nPt,1)*faceNorm(0,nPt,1)+uFace(nPt,2)*faceNorm(0,nPt,2));
+//			           }
+//
+//			          // integrate
+//			           for(int nPt = 0; nPt < numFacePoints; nPt++){
+//			             bndyFaceVal(ibface)=bndyFaceVal(ibface)+uDotNormal(0,nPt)*paramFaceWeights(nPt);
+//			           }
+//			           bndyFaceToFace(elemToFace(ielem,iface))=ibface;
+//			           ibface++;
+//			         } // end if face on boundary
+//
+//			       } // end loop over element faces
+
+			if (boundary_nodes.size() > spaceDim-1) {
+				const ST t_1_x = node_coord(boundary_nodes[0],0)-node_coord(boundary_nodes[1],0);
+				const ST t_1_y = node_coord(boundary_nodes[0],1)-node_coord(boundary_nodes[1],1);
+				const ST t_1_z = node_coord(boundary_nodes[0],2)-node_coord(boundary_nodes[1],2);
+
+				const ST t_2_x = node_coord(boundary_nodes[0],0)-node_coord(boundary_nodes[2],0);
+				const ST t_2_y = node_coord(boundary_nodes[0],1)-node_coord(boundary_nodes[2],1);
+				const ST t_2_z = node_coord(boundary_nodes[0],2)-node_coord(boundary_nodes[2],2);
+						boundary_normals(cellCounter, )
 			}
 			++cellCounter;
 		}
@@ -685,10 +899,10 @@ void Pde::make_LHS_and_RHS () {
 		FieldContainer<ST> worksetHGBGradsWeighted (worksetSize, numFieldsG, numCubPoints, spaceDim);
 
 		// Additional arrays used in analytic assembly
-		FieldContainer<ST> u_coeffs(worksetSize, numFieldsG);
-		FieldContainer<ST> u_FE_val(worksetSize, numCubPoints);
-		FieldContainer<ST> df_of_u(worksetSize, numCubPoints);
-		FieldContainer<ST> df_of_u_times_basis(worksetSize, numFieldsG, numCubPoints);
+//		FieldContainer<ST> u_coeffs(worksetSize, numFieldsG);
+//		FieldContainer<ST> u_FE_val(worksetSize, numCubPoints);
+//		FieldContainer<ST> df_of_u(worksetSize, numCubPoints);
+//		FieldContainer<ST> df_of_u_times_basis(worksetSize, numFieldsG, numCubPoints);
 
 		// Containers for diffusive & advective fluxes & non-conservative
 		// adv. term and reactive terms
@@ -702,6 +916,7 @@ void Pde::make_LHS_and_RHS () {
 		// matrix and the right hand side
 		FieldContainer<ST> worksetStiffMatrix (worksetSize, numFieldsG, numFieldsG);
 		FieldContainer<ST> worksetMassMatrix (worksetSize, numFieldsG, numFieldsG);
+		FieldContainer<ST> worksetGradOp (worksetSize, numFieldsG, numFieldsG);
 
 
 		/**********************************************************************************/
@@ -781,6 +996,17 @@ void Pde::make_LHS_and_RHS () {
 //				worksetHGBValues,
 //				worksetHGBValuesWeighted,
 //				COMP_BLAS);
+
+		/**********************************************************************************/
+		/*                         Compute gradient op                               */
+		/**********************************************************************************/
+
+
+
+		IntrepidFSTools::integrate<ST> (worksetGradOp, // DF^{-T}(grad u)*J*w
+				worksetHGBGrads,
+				worksetCubWeights,
+				COMP_BLAS);
 
 //		/**********************************************************************************/
 //		/*                                   Compute Reaction                             */
@@ -871,10 +1097,14 @@ void Pde::make_LHS_and_RHS () {
 								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
 								- (1.0-omega)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
 
+						ST operatorMatrixContributionGradOp = worksetGradOp(worksetCellOrdinal, cellRow, cellCol);
+
 						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
 						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionRHS, 1));
+						oboundary_grad_op->sumIntoGlobalValues (globalRow, globalColAV,
+								arrayView<ST> (&operatorMatrixContributionGradOp, 1));
 					}// *** cell col loop ***
 				}// *** cell row loop ***
 			}// *** workset cell loop **
@@ -903,6 +1133,10 @@ void Pde::make_LHS_and_RHS () {
 		// If target of export has static graph, no need to do
 		// setAllToScalar(0.0); export will clobber values.
 		RHS->fillComplete ();
+
+		boundary_grad_op->setAllToScalar (STS::zero ());
+		boundary_grad_op->doExport (*oboundary_grad_op, *exporter, Tpetra::ADD);
+		boundary_grad_op->fillComplete ();
 	}
 
 	//////////////////////////////////////////////////////////////////////////////
@@ -1144,6 +1378,13 @@ void Pde::create_vtk_grid() {
 	ASSERT(num_local_entries == num_points, "size in X vector not same as number of points");
 	newScalars->SetArray(X->getDataNonConst(0).getRawPtr(),num_local_entries,1);
 	newScalars->SetName("Concentration");
+
+	/*
+	 * setup scalar grad data
+	 */
+	vtkSmartPointer<vtkDoubleArray> newScalars = vtkSmartPointer<vtkDoubleArray>::New();
+	newScalars->SetArray(X_grad->getDataNonConst(0).getRawPtr(),num_local_entries,1);
+	newScalars->SetName("Concentration Gradient");
 
 	/*
 	 * setup cells

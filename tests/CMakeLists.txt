@@ -1,11 +1,11 @@
 include_directories(${PDE_BD_INCLUDE_DIRECTORIES})
 LINK_DIRECTORIES(${pde_bd_BINARY_DIR}/lib)
 
-add_executable (test_init test_init.cpp) 
-target_link_libraries (test_init pdb) 
+#add_executable (test_init test_init.cpp) 
+#target_link_libraries (test_init pdb) 
 
-add_executable (test_pde_constructor test_pde_constructor.cpp) 
-target_link_libraries (test_pde_constructor pdb)
+#add_executable (test_pde_constructor test_pde_constructor.cpp) 
+#target_link_libraries (test_pde_constructor pdb)
 
 enable_testing()
 add_test(init ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_init)

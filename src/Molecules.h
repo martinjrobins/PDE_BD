@@ -28,6 +28,7 @@
 #include "Tpetra_MultiVector.hpp"
 #include "Tpetra_Vector.hpp"
 #include "Tpetra_DefaultPlatform.hpp"
+#include "Tpetra_Map.hpp"
 
 using Teuchos::RCP;
 using Teuchos::rcp;
@@ -40,6 +41,7 @@ class Molecules {
 
 	typedef Tpetra::MultiVector<ST, LO, GO, Node>  multivector_type;
 	typedef Tpetra::Vector<ST, LO, GO, Node>       vector_type;
+	typedef Tpetra::Vector<int, LO, GO, Node>       vector_int_type;
 
 	typedef Tpetra::Map<LO, GO, Node>         map_type;
 	typedef Tpetra::Export<LO, GO, Node>      export_type;
@@ -53,12 +55,16 @@ private:
 
 	RCP<const Teuchos::Comm<int> > comm;
 	RCP<Node> node;
+	int my_rank;
+	int num_procs;
 
-	RCP<multivector_type> pos_data, pos_view;
-	RCP<Tpetra::Map> map_data,map_view;
-	std::vector<GO> gids_data;
+	RCP<multivector_type> pos, pos_allocate;
+	RCP<vector_type> alive;
+	RCP<Tpetra::Map> map,map_allocate;
+	std::vector<GO> gids;
 	LO num_local_particles;
 	GO num_global_particles;
+	LO num_allocated_particles;
 
 };
 
