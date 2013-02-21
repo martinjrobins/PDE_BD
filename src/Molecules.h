@@ -29,6 +29,9 @@
 #include "Tpetra_Vector.hpp"
 #include "Tpetra_DefaultPlatform.hpp"
 
+using Teuchos::RCP;
+using Teuchos::rcp;
+
 class Molecules {
 	typedef double ST;
 	typedef int    LO;
@@ -43,9 +46,20 @@ class Molecules {
 	typedef Tpetra::Import<LO, GO, Node>      import_type;
 public:
 	Molecules();
+	void add_particle(const ST x, const ST Y, const ST z);
+	void remove_particle(const GO i);
 	void diffuse(const double dt, const double D);
 private:
-	multivector_type pos;
+
+	RCP<const Teuchos::Comm<int> > comm;
+	RCP<Node> node;
+
+	RCP<multivector_type> pos_data, pos_view;
+	RCP<Tpetra::Map> map_data,map_view;
+	std::vector<GO> gids_data;
+	LO num_local_particles;
+	GO num_global_particles;
+
 };
 
 #endif /* MOLECULES_H_ */

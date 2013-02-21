@@ -25,7 +25,25 @@
 #include "Molecules.h"
 
 Molecules::Molecules() {
-	// TODO Auto-generated constructor stub
-
+	using Tpetra::Map;
+	using Tpetra::ArrayView;
+	const int my_rank = Mpi::mpiSession->getRank();
+	const int num_procs = Mpi::mpiSession->getNProc();
+	// Get the default communicator and Kokkos Node instance
+	comm = Tpetra::DefaultPlatform::getDefaultPlatform ().getComm ();
+	node = Tpetra::DefaultPlatform::getDefaultPlatform ().getNode ();
+	gids_data.push_back(my_rank);
+	map_data = rcp(new Map(num_procs,ArrayView(gids_data),0,comm,node));
+	pos_data = rcp(new multivector_type(map_data,3));
 }
+
+void Molecules::add_particle(const ST x, const ST Y, const ST z) {
+}
+
+void Molecules::remove_particle(const GO i) {
+}
+
+void Molecules::diffuse(const double dt, const double D) {
+}
+
 

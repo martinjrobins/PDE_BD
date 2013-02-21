@@ -67,7 +67,7 @@
 #include "vtkHexahedron.h"
 
 using Teuchos::RCP;
-		using Teuchos::rcp;
+using Teuchos::rcp;
 
 class Pde {
 	typedef double ST;
