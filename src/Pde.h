@@ -147,6 +147,7 @@ private:
 	bool* node_is_owned;
 	shards::CellTopology cellType;
 	shards::CellTopology faceType;
+	Intrepid::FieldContainer<int> refFaceToNode;
 
 	/*
 	 * Basis

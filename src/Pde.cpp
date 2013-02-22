@@ -106,28 +106,14 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 	int dim = 3;
 
 	// Build reference element face to node map
-	FieldContainer<int> refFaceToNode(numFacesPerElem,numNodesPerFace);
+
+	refFaceToNode.resize(numFacesPerElem,numNodesPerFace);
 	for (int i=0; i<numFacesPerElem; i++){
 		refFaceToNode(i,0)=cellType.getNodeMap(2, i, 0);
 		refFaceToNode(i,1)=cellType.getNodeMap(2, i, 1);
 		refFaceToNode(i,2)=cellType.getNodeMap(2, i, 2);
 		refFaceToNode(i,3)=cellType.getNodeMap(2, i, 3);
 	}
-
-	// Build reference element face to edge map (Hardcoded for now)
-	FieldContainer<int> refFaceToEdge(numFacesPerElem,numEdgesPerFace);
-	refFaceToEdge(0,0)=0; refFaceToEdge(0,1)=9;
-	refFaceToEdge(0,2)=4; refFaceToEdge(0,3)=8;
-	refFaceToEdge(1,0)=1; refFaceToEdge(1,1)=10;
-	refFaceToEdge(1,2)=5; refFaceToEdge(1,3)=9;
-	refFaceToEdge(2,0)=2; refFaceToEdge(2,1)=11;
-	refFaceToEdge(2,2)=6; refFaceToEdge(2,3)=10;
-	refFaceToEdge(3,0)=8; refFaceToEdge(3,1)=7;
-	refFaceToEdge(3,2)=11; refFaceToEdge(3,3)=3;
-	refFaceToEdge(4,0)=3; refFaceToEdge(4,1)=2;
-	refFaceToEdge(4,2)=1; refFaceToEdge(4,3)=0;
-	refFaceToEdge(5,0)=4; refFaceToEdge(5,1)=5;
-	refFaceToEdge(5,2)=6; refFaceToEdge(5,3)=7;
 
 	/**********************************************************************************/
 	/******************************* GENERATE MESH ************************************/
@@ -677,16 +663,17 @@ void Pde::build_maps_and_create_matrices() {
 				for (int iface = 0; iface < numFacesPerElem; ++iface) {
 					if (faceOnBoundary(elemToFace(cell,iface))) {
 						for (int ipt = 0; ipt < numNodesPerFace; ++ipt) {
+							int localBcellpt = elem_to_node(cell,refFaceToNode(iface,ipt));
+							Tpetra::global_size_t globalBT = as<Tpetra::global_size_t> (global_node_ids[localBcellpt]) + numNodesGlobal;
 
 							for (int cellpt = 0; cellpt < numFieldsG; cellpt++) {
 								int localCellpt  = elem_to_node(cell, cellpt);
 								//globalRow for Tpetra Graph
 								Tpetra::global_size_t globalCellT = as<Tpetra::global_size_t> (global_node_ids[localCellpt]);
-
-								Tpetra::global_size_t globalBT = globalRowT + numNodesGlobal;
+								int globalCell = as<int> (globalCellT);
 								int globalB = as<int> (globalBT);
-								Teuchos::ArrayView<int> globalBAV = Teuchos::arrayView (&globalB, 1);
-								overlappedGraph->insertGlobalIndices (globalRowT, globalBAV);
+								Teuchos::ArrayView<int> globalCellAV = Teuchos::arrayView (&globalCell, 1);
+								overlappedGraph->insertGlobalIndices (globalRowT, globalCellAV);
 							}
 						}
 					}
