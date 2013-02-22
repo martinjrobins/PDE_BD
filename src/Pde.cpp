@@ -95,23 +95,15 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 
 	// Get cell topology for base hexahedron
 	cellType = shards::CellTopology(shards::getCellTopologyData<shards::Hexahedron<8> > ());
+	faceType = shards::CellTopology(shards::getCellTopologyData<shards::Quadrilateral<4> > ());
 
 	// Get dimensions
 	int numNodesPerElem = cellType.getNodeCount();
 	int numFacesPerElem = cellType.getSideCount();
 	int numEdgesPerElem = cellType.getEdgeCount();
-	int numNodesPerEdge = 2;
-	int numNodesPerFace = 4;
-	int numEdgesPerFace = 4;
+	numNodesPerFace = 4;
 	int spaceDim = cellType.getDimension();
 	int dim = 3;
-
-	// Build reference element edge to node map
-	FieldContainer<int> refEdgeToNode(numEdgesPerElem,numNodesPerEdge);
-	for (int i=0; i<numEdgesPerElem; i++){
-		refEdgeToNode(i,0)=cellType.getNodeMap(1, i, 0);
-		refEdgeToNode(i,1)=cellType.getNodeMap(1, i, 1);
-	}
 
 	// Build reference element face to node map
 	FieldContainer<int> refFaceToNode(numFacesPerElem,numNodesPerFace);
@@ -172,7 +164,7 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 
 	ASSERT(numElems > 0,"The number of elements in the mesh is zero.");
 
-	long long numNodesGlobal;
+
 	long long numElemsGlobal;
 	long long numElemBlkGlobal;
 	long long numNodeSetsGlobal;
@@ -410,7 +402,8 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 
 	// Container indicating whether a node is on the boundary (1-yes 0-no)
 	node_on_boundary.resize(numNodes);
-	FieldContainer<int> faceOnBoundary(numFaces);
+
+	faceOnBoundary.resize(numFaces);
 
 	// Get boundary (side set) information
 	long long * sideSetIds = new long long [numSideSets];
@@ -447,26 +440,6 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 	}
 	delete [] sideSetIds;
 
-	int numBCNodes = 0;
-	for (int inode = 0; inode < numNodes; ++inode) {
-		if (node_on_boundary(inode) && node_is_owned[inode]) {
-			++numBCNodes;
-		}
-	}
-
-	BCNodes.resize(numBCNodes);
-	int indbc = 0;
-	int iOwned = 0;
-	for (int inode = 0; inode < numNodes; ++inode) {
-		if (node_is_owned[inode]) {
-			if (node_on_boundary (inode)) {
-				BCNodes[indbc]=iOwned;
-				++indbc;
-			} // if node inode is on the boundary
-			++iOwned;
-		} // if node inode is owned by my process
-	} // for each node inode that my process can see
-
 
 	//
 	// We're done with assembly, so we can delete the mesh.
@@ -478,7 +451,7 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 void Pde::create_cubature_and_basis() {
 	using namespace Intrepid;
 	/**********************************************************************************/
-	/********************************* GET CUBATURE ***********************************/
+	/********************************* GET CUBATURE For 3D cells***********************/
 	/**********************************************************************************/
 
 	LOG(2,"Getting cubature");
@@ -496,26 +469,7 @@ void Pde::create_cubature_and_basis() {
 
 	cubature->getCubature (cubPoints, cubWeights);
 
-	/**********************************************************************************/
-	/*     Get numerical integration points and weights for hexahedron face           */
-	/*                  (needed for rhs boundary term)                                */
-	/**********************************************************************************/
 
-	// Define topology of the face parametrization domain as [-1,1]x[-1,1]
-	CellTopology paramQuadFace(shards::getCellTopologyData<shards::Quadrilateral<4> >() );
-
-	// Define cubature
-	DefaultCubatureFactory<double>  cubFactoryFace;
-	Teuchos::RCP<Cubature<double> > hexFaceCubature = cubFactoryFace.create(paramQuadFace, 3);
-	int cubFaceDim    = hexFaceCubature -> getDimension();
-	int numFacePoints = hexFaceCubature -> getNumPoints();
-
-	// Define storage for cubature points and weights on [-1,1]x[-1,1]
-	paramFaceWeights.resize(numFacePoints);
-	paramFacePoints.resize(numFacePoints,cubFaceDim);
-
-	// Define storage for cubature points on workset faces
-	hexFaceCubature -> getCubature(paramFacePoints, paramFaceWeights);
 
 	/**********************************************************************************/
 	/*********************************** GET BASIS ************************************/
@@ -545,7 +499,45 @@ void Pde::create_cubature_and_basis() {
 	HGradBasis->getValues(HGBValues, cubPoints, OPERATOR_VALUE);
 	HGradBasis->getValues(HGBGrads, cubPoints, OPERATOR_GRAD);
 
+	/**********************************************************************************/
+	/********************************* GET CUBATURE For 2D faces*********************/
+	/**********************************************************************************/
 
+	LOG(2,"Getting cubature");
+
+	faceCubature = cubFactory.create (faceType, cubDegree);
+
+	int faceDim       = faceCubature->getDimension ();
+	int numFacePoints = faceCubature->getNumPoints ();
+
+	facePoints.resize(numFacePoints, faceDim);
+	faceWeights.resize(numFacePoints);
+
+	faceCubature->getCubature (facePoints, faceWeights);
+
+	/**********************************************************************************/
+	/*     Get numerical integration points and weights for hexahedron face           */
+	/*                  (needed for rhs boundary term)                                */
+	/**********************************************************************************/
+
+	switch (faceType.getKey()) {
+		case shards::Triangle<3>::key:
+			faceBasis = Teuchos::rcp(new Intrepid::Basis_HGRAD_TRI_C1_FEM<double, Intrepid::FieldContainer<double> > );
+			break;
+
+		case shards::Quadrilateral<4>::key:
+			faceBasis = Teuchos::rcp(new Intrepid::Basis_HGRAD_QUAD_C1_FEM<double, Intrepid::FieldContainer<double> > );
+			break;
+
+		default:
+			ERROR("Unknown face topology for basis selction. Please use Quadrilateral_4 or Triangle_3.");
+	}
+
+	int numFieldsFace = faceBasis->getCardinality();
+	faceValues.resize(numFieldsFace, numFacePoints);
+
+	// Evaluate basis values at cubature points
+	faceBasis->getValues(faceValues, facePoints, OPERATOR_VALUE);
 
 }
 
@@ -559,32 +551,55 @@ void Pde::build_maps_and_create_matrices() {
 	/**********************************************************************************/
 
 	LOG(2,"Building Maps");
-	int numFieldsG = HGradBasis->getCardinality();
+	const int numFieldsG = HGradBasis->getCardinality();
+	const int numFieldsFace = faceBasis->getCardinality();
 
 	RCP<Teuchos::Time> timerBuildGlobalMaps =
 			TimeMonitor::getNewTimer ("Build global Maps and Export");
 	Array<int> ownedGIDs;
 	const long long numNodes = global_node_ids.size();
+	int numBoundaryNodes = 0;
 	{
 		TimeMonitor timerBuildGlobalMapsL (*timerBuildGlobalMaps);
-		// Count owned nodes
+		// Count owned and boundary nodes
 		int ownedNodes = 0;
+		int ownedBoundaryNodes = 0;
+
 		for (int i = 0; i < numNodes; ++i) {
 			if (node_is_owned[i]) {
 				++ownedNodes;
+				if (node_on_boundary(i)) {
+					++ownedBoundaryNodes;
+				}
+			}
+			if (node_on_boundary(i)) {
+				++numBoundaryNodes;
 			}
 		}
 
+
+
+		ownedBCNodes.resize(ownedBoundaryNodes);
 		// Build a list of the OWNED global ids...
 		// NTS: will need to switch back to long long
-		ownedGIDs.resize(ownedNodes);
+		ownedGIDs.resize(ownedNodes+ownedBoundaryNodes);
 		int oidx = 0;
+		int obidx = 0;
 		for (int i = 0; i < numNodes; ++i) {
 			if (node_is_owned[i]) {
 				ownedGIDs[oidx] = as<int> (global_node_ids[i]);
 				++oidx;
+				if (node_on_boundary(i)) {
+					ownedGIDs[ownedNodes+obidx] = as<int> (global_node_ids[i]+numNodesGlobal);
+					ownedBCNodes[obidx] = oidx;
+					++obidx;
+				}
 			}
 		}
+
+		// extend list to include boundary condition nodes
+
+
 		globalMapG = rcp (new map_type (-1, ownedGIDs (), 0, comm, node));
 	}
 
@@ -596,11 +611,17 @@ void Pde::build_maps_and_create_matrices() {
 	{
 		// Count owned nodes
 		int overlappedNodes = numNodes;
-
+		BCNodes.resize(numBoundaryNodes);
 		// Build a list of the OVERLAPPED global ids...
-		overlappedGIDs.resize (overlappedNodes);
+		overlappedGIDs.resize (overlappedNodes + numBoundaryNodes);
+		int iBC = 0;
 		for (int i = 0; i < numNodes; ++i) {
 			overlappedGIDs[i] = as<int> (global_node_ids[i]);
+			if (node_on_boundary(i)) {
+				overlappedGIDs[i+numNodes] = as<int> (global_node_ids[i]+numNodesGlobal);
+				BCNodes[iBC] = i;
+				++iBC;
+			}
 		}
 
 		//Generate overlapped Map for nodes.
@@ -619,6 +640,7 @@ void Pde::build_maps_and_create_matrices() {
 	RCP<Teuchos::Time> timerBuildOverlapGraph =
 			TimeMonitor::getNewTimer ("Build graphs for overlapped and owned solutions");
 	const int numElems = elem_to_node.dimension(0);
+	const int numFacesPerElem = cellType.getSideCount();
 	{
 		TimeMonitor timerBuildOverlapGraphL (*timerBuildOverlapGraph);
 
@@ -651,9 +673,27 @@ void Pde::build_maps_and_create_matrices() {
 				// Compute cell ordinal relative to the current workset
 				//int worksetCellOrdinal = cell - worksetBegin;
 
+
+				for (int iface = 0; iface < numFacesPerElem; ++iface) {
+					if (faceOnBoundary(elemToFace(cell,iface))) {
+						for (int ipt = 0; ipt < numNodesPerFace; ++ipt) {
+
+							for (int cellpt = 0; cellpt < numFieldsG; cellpt++) {
+								int localCellpt  = elem_to_node(cell, cellpt);
+								//globalRow for Tpetra Graph
+								Tpetra::global_size_t globalCellT = as<Tpetra::global_size_t> (global_node_ids[localCellpt]);
+
+								Tpetra::global_size_t globalBT = globalRowT + numNodesGlobal;
+								int globalB = as<int> (globalBT);
+								Teuchos::ArrayView<int> globalBAV = Teuchos::arrayView (&globalB, 1);
+								overlappedGraph->insertGlobalIndices (globalRowT, globalBAV);
+							}
+						}
+					}
+				}
 				// "CELL EQUATION" loop for the workset cell: cellRow is
 				// relative to the cell DoF numbering
-				for (int cellRow = 0; cellRow < numFieldsG; cellRow++){
+				for (int cellRow = 0; cellRow < numFieldsG; cellRow++) {
 
 					int localRow  = elem_to_node(cell, cellRow);
 					//globalRow for Tpetra Graph
@@ -670,6 +710,25 @@ void Pde::build_maps_and_create_matrices() {
 						//Update Tpetra overlap Graph
 						overlappedGraph->insertGlobalIndices (globalRowT, globalColAV);
 					}// *** cell col loop ***
+
+					// add node -> boundary node connectivity
+					if (node_on_boundary(cellRow)) {
+						Tpetra::global_size_t globalBT = globalRowT + numNodesGlobal;
+						int globalB = as<int> (globalBT);
+						Teuchos::ArrayView<int> globalBAV = Teuchos::arrayView (&globalB, 1);
+						overlappedGraph->insertGlobalIndices (globalRowT, globalBAV);
+						// "CELL VARIABLE" loop for the workset cell: cellCol is
+						// relative to the cell DoF numbering
+						for (int cellCol = 0; cellCol < numFieldsG; ++cellCol) {
+							int localCol  = elem_to_node (cell, cellCol);
+							int globalCol = as<int> (global_node_ids[localCol]);
+							//create ArrayView globalCol object for Tpetra
+							Teuchos::ArrayView<int> globalColAV = Teuchos::arrayView (&globalCol, 1);
+
+							//Update Tpetra overlap Graph
+							overlappedGraph->insertGlobalIndices (globalBT, globalColAV);
+						}// *** cell col loop ***
+					}
 				}// *** cell row loop ***
 			}// *** workset cell loop **
 		}// *** workset loop ***
@@ -755,7 +814,7 @@ void Pde::make_LHS_and_RHS () {
 	const long long numNodes = global_node_ids.size();
 	const int numNodesPerElem = elem_to_node.dimension(1);
 	const int cubDim = cubature->getDimension();
-	const int numBCNodes = BCNodes.size();
+	const int numBCNodes = ownedBCNodes.size();
 
 	//
 	// Overlapped distribution objects:
@@ -766,9 +825,76 @@ void Pde::make_LHS_and_RHS () {
 	RCP<sparse_matrix_type> oRHS=
 			rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
 	oRHS->setAllToScalar (STS::zero ());
-	RCP<sparse_matrix_type> oboundary_grad_op =
-				rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
-	oboundary_grad_op->setAllToScalar (STS::zero ());
+
+	/**********************************************************************************/
+	/******************** BOUNDARY CONDITIONS ***************************/
+	/**********************************************************************************/
+
+	const int faceDim       = faceCubature->getDimension ();
+	const int numFacePoints = faceCubature->getNumPoints ();
+	const int numFacesPerElem = cellType.getSideCount();
+
+	FieldContainer<double> bndyFaceVal(numBndyFaces);
+	FieldContainer<double> refFacePoints(numFacePoints,spaceDim);
+	FieldContainer<double> bndyFacePoints(1,numFacePoints,spaceDim);
+	FieldContainer<double> bndyFaceJacobians(1,numFacePoints,spaceDim,spaceDim);
+	FieldContainer<double> faceNorm(1,numFacePoints,spaceDim);
+	FieldContainer<double> uDotNormal(1,numFacePoints);
+	FieldContainer<double> uFace(numFacePoints,spaceDim);
+	FieldContainer<double> nodes(1, numNodesPerElem, spaceDim);
+
+	int ibface=0;
+
+	for (int ielem=0; ielem<numElems; ielem++) {
+		for (int inode=0; inode<numNodesPerElem; inode++) {
+			nodes(0,inode,0) = node_coord(elem_to_node(ielem,inode),0);
+			nodes(0,inode,1) = node_coord(elem_to_node(ielem,inode),1);
+			nodes(0,inode,2) = node_coord(elem_to_node(ielem,inode),2);
+		}
+		for (int iface=0; iface<numFacesPerElem; iface++){
+			if(faceOnBoundary(elemToFace(ielem,iface))){
+
+				// map evaluation points from reference face to reference cell
+				IntrepidCTools::mapToReferenceSubcell(refFacePoints,
+						facePoints,
+						2, iface, cellType);
+
+				// calculate Jacobian
+				IntrepidCTools::setJacobian(bndyFaceJacobians, refFacePoints,
+						nodes, cellType);
+
+				// map evaluation points from reference cell to physical cell
+				IntrepidCTools::mapToPhysicalFrame(bndyFacePoints,
+						refFacePoints,
+						nodes, cellType);
+
+				// Compute face normals
+				IntrepidCTools::getPhysicalFaceNormals(faceNorm,
+						bndyFaceJacobians,
+						iface, cellType);
+
+				// evaluate exact solution and dot with normal
+				for(int nPt = 0; nPt < numFacePoints; nPt++){
+
+					double x = bndyFacePoints(0, nPt, 0);
+					double y = bndyFacePoints(0, nPt, 1);
+					double z = bndyFacePoints(0, nPt, 2);
+
+					evalu(uFace(nPt,0), uFace(nPt,1), uFace(nPt,2), x, y, z);
+					uDotNormal(0,nPt)=(uFace(nPt,0)*faceNorm(0,nPt,0)+uFace(nPt,1)*faceNorm(0,nPt,1)+uFace(nPt,2)*faceNorm(0,nPt,2));
+				}
+
+				// integrate
+				for(int nPt = 0; nPt < numFacePoints; nPt++){
+					bndyFaceVal(ibface)=bndyFaceVal(ibface)+uDotNormal(0,nPt)*paramFaceWeights(nPt);
+				}
+				ibface++;
+			} // end if face on boundary
+
+		} // end loop over element faces
+
+	} // end loop over elements
+
 
 
 	/**********************************************************************************/
@@ -813,69 +939,12 @@ void Pde::make_LHS_and_RHS () {
 		// Copy coordinates into cell workset
 		int cellCounter = 0;
 		for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
-			std::vector<int> boundary_nodes;
 			for (int node = 0; node < numNodesPerElem; ++node) {
 				const int node_num = elem_to_node(cell, node);
-				if (node_on_boundary(node_num)) {
-					boundary_nodes.push_back(node_num);
-				}
 				cellWorkset(cellCounter, node, 0) = node_coord(node_num, 0);
 				cellWorkset(cellCounter, node, 1) = node_coord(node_num, 1);
 				cellWorkset(cellCounter, node, 2) = node_coord(node_num, 2);
 
-			}
-//			for (int iface=0; iface<numFacesPerElem; iface++){
-//			          if(faceOnBoundary(elemToFace(ielem,iface))){
-//
-//			          // map evaluation points from reference face to reference cell
-//			             IntrepidCTools::mapToReferenceSubcell(refFacePoints,
-//			                                   paramFacePoints,
-//			                                   2, iface, cellType);
-//
-//			          // calculate Jacobian
-//			             IntrepidCTools::setJacobian(bndyFaceJacobians, refFacePoints,
-//			                         nodes, cellType);
-//
-//			          // map evaluation points from reference cell to physical cell
-//			             IntrepidCTools::mapToPhysicalFrame(bndyFacePoints,
-//			                                refFacePoints,
-//			                                nodes, cellType);
-//
-//			          // Compute face normals
-//			             IntrepidCTools::getPhysicalFaceNormals(faceNorm,
-//			                                              bndyFaceJacobians,
-//			                                              iface, cellType);
-//
-//			          // evaluate exact solution and dot with normal
-//			           for(int nPt = 0; nPt < numFacePoints; nPt++){
-//
-//			             double x = bndyFacePoints(0, nPt, 0);
-//			             double y = bndyFacePoints(0, nPt, 1);
-//			             double z = bndyFacePoints(0, nPt, 2);
-//
-//			             evalu(uFace(nPt,0), uFace(nPt,1), uFace(nPt,2), x, y, z);
-//			             uDotNormal(0,nPt)=(uFace(nPt,0)*faceNorm(0,nPt,0)+uFace(nPt,1)*faceNorm(0,nPt,1)+uFace(nPt,2)*faceNorm(0,nPt,2));
-//			           }
-//
-//			          // integrate
-//			           for(int nPt = 0; nPt < numFacePoints; nPt++){
-//			             bndyFaceVal(ibface)=bndyFaceVal(ibface)+uDotNormal(0,nPt)*paramFaceWeights(nPt);
-//			           }
-//			           bndyFaceToFace(elemToFace(ielem,iface))=ibface;
-//			           ibface++;
-//			         } // end if face on boundary
-//
-//			       } // end loop over element faces
-
-			if (boundary_nodes.size() > spaceDim-1) {
-				const ST t_1_x = node_coord(boundary_nodes[0],0)-node_coord(boundary_nodes[1],0);
-				const ST t_1_y = node_coord(boundary_nodes[0],1)-node_coord(boundary_nodes[1],1);
-				const ST t_1_z = node_coord(boundary_nodes[0],2)-node_coord(boundary_nodes[1],2);
-
-				const ST t_2_x = node_coord(boundary_nodes[0],0)-node_coord(boundary_nodes[2],0);
-				const ST t_2_y = node_coord(boundary_nodes[0],1)-node_coord(boundary_nodes[2],1);
-				const ST t_2_z = node_coord(boundary_nodes[0],2)-node_coord(boundary_nodes[2],2);
-						boundary_normals(cellCounter, )
 			}
 			++cellCounter;
 		}
@@ -997,16 +1066,6 @@ void Pde::make_LHS_and_RHS () {
 //				worksetHGBValuesWeighted,
 //				COMP_BLAS);
 
-		/**********************************************************************************/
-		/*                         Compute gradient op                               */
-		/**********************************************************************************/
-
-
-
-		IntrepidFSTools::integrate<ST> (worksetGradOp, // DF^{-T}(grad u)*J*w
-				worksetHGBGrads,
-				worksetCubWeights,
-				COMP_BLAS);
 
 //		/**********************************************************************************/
 //		/*                                   Compute Reaction                             */
@@ -1097,14 +1156,10 @@ void Pde::make_LHS_and_RHS () {
 								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
 								- (1.0-omega)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
 
-						ST operatorMatrixContributionGradOp = worksetGradOp(worksetCellOrdinal, cellRow, cellCol);
-
 						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
 						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionRHS, 1));
-						oboundary_grad_op->sumIntoGlobalValues (globalRow, globalColAV,
-								arrayView<ST> (&operatorMatrixContributionGradOp, 1));
 					}// *** cell col loop ***
 				}// *** cell row loop ***
 			}// *** workset cell loop **
@@ -1133,26 +1188,22 @@ void Pde::make_LHS_and_RHS () {
 		// If target of export has static graph, no need to do
 		// setAllToScalar(0.0); export will clobber values.
 		RHS->fillComplete ();
-
-		boundary_grad_op->setAllToScalar (STS::zero ());
-		boundary_grad_op->doExport (*oboundary_grad_op, *exporter, Tpetra::ADD);
-		boundary_grad_op->fillComplete ();
 	}
 
 	//////////////////////////////////////////////////////////////////////////////
 	// Adjust matrix for boundary conditions
 	//////////////////////////////////////////////////////////////////////////////
 
-	LOG(2,"Adjusting for BCs");
-
-	RCP<Teuchos::Time> timerAdjustMatrixBC =
-			TimeMonitor::getNewTimer ("Adjust owned matrix for BCs");
-	{
-		TimeMonitor timerAdjustMatrixBCL (*timerAdjustMatrixBC);
-		// Zero out rows and columns of LHS & RHS matrix corresponding to
-		zero_out_rows_and_columns(LHS);
-		zero_out_rows_and_columns(RHS);
-	}
+//	LOG(2,"Adjusting for BCs");
+//
+//	RCP<Teuchos::Time> timerAdjustMatrixBC =
+//			TimeMonitor::getNewTimer ("Adjust owned matrix for BCs");
+//	{
+//		TimeMonitor timerAdjustMatrixBCL (*timerAdjustMatrixBC);
+//		// Zero out rows and columns of LHS & RHS matrix corresponding to
+//		zero_out_rows_and_columns(LHS);
+//		zero_out_rows_and_columns(RHS);
+//	}
 
 }
 
@@ -1164,7 +1215,7 @@ void Pde::zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix) {
 	using Teuchos::as;
 	typedef Teuchos::ScalarTraits<ST> STS;
 
-	const int numBCNodes = BCNodes.size();
+	const int numBCNodes = ownedBCNodes.size();
 
 	// Zero out rows and columns of LHS & RHS matrix corresponding to
 	// Dirichlet edges and add one to diagonal.  The following is the
@@ -1195,7 +1246,7 @@ void Pde::zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix) {
 	// Flag (set to 1) all local columns corresponding to the local
 	// rows specified.
 	for (int i = 0; i < numBCNodes; ++i) {
-		const GO globalRow = matrix->getRowMap ()->getGlobalElement (BCNodes[i]);
+		const GO globalRow = matrix->getRowMap ()->getGlobalElement (ownedBCNodes[i]);
 		const LO localCol = matrix->getColMap ()->getLocalElement (globalRow);
 		// Tpetra::Vector<int, ...> works just like
 		// Tpetra::Vector<double, ...>.  Epetra has a separate
@@ -1228,11 +1279,11 @@ void Pde::zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix) {
 
 	// Zero the rows and add ones to diagonal.
 	for (int i = 0; i < numBCNodes; ++i) {
-		NumEntries = matrix->getNumEntriesInLocalRow (BCNodes[i]);
+		NumEntries = matrix->getNumEntriesInLocalRow (ownedBCNodes[i]);
 		indices.resize (NumEntries);
 		values.resize (NumEntries);
-		matrix->getLocalRowCopy (BCNodes[i], indices (), values (), NumEntries);
-		const GO globalRow = matrix->getRowMap ()->getGlobalElement (BCNodes[i]);
+		matrix->getLocalRowCopy (ownedBCNodes[i], indices (), values (), NumEntries);
+		const GO globalRow = matrix->getRowMap ()->getGlobalElement (ownedBCNodes[i]);
 		const LO localCol = matrix->getColMap ()->getLocalElement (globalRow);
 		for (int j = 0; j < as<int> (NumEntries); ++j) {
 			values[j] = STS::zero ();
@@ -1240,7 +1291,7 @@ void Pde::zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix) {
 				values[j] = STS::one ();
 			}
 		} // for each entry in the current row
-		matrix->replaceLocalValues (BCNodes[i], indices (), values ());
+		matrix->replaceLocalValues (ownedBCNodes[i], indices (), values ());
 	} // for each BC node
 
 	// We're done modifying the owned stiffness matrix.
