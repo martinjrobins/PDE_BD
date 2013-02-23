@@ -289,65 +289,65 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 			my_rank);
 
 
-
-	 elemToFace.resize(numElems,numFacesPerElem);
-	 //FieldContainer<int> elemToEdge(numElems,numEdgesPerElem);
-	 std::set < topo_entity * , fecomp > edge_set;
-	 std::set < topo_entity * , fecomp > face_set;
-	 std::vector < topo_entity * > edge_vector;
-	 std::vector < topo_entity * > face_vector;
-
-	 // calculate edge and face ids
-	 int elct = 0;
-	 for(long long b = 0; b < numElemBlk; b++){
-		 if(nodes_per_element[b] == 4){
-		 }
-		 else if (nodes_per_element[b] == 8){
-			 //loop over all elements and push their edges onto a set if they are not there already
-			 for(long long el = 0; el < elements[b]; el++){
-				 std::set< topo_entity *, fecomp > ::iterator fit;
-//				 for (int i=0; i < numEdgesPerElem; i++){
+//
+//	 elemToFace.resize(numElems,numFacesPerElem);
+//	 //FieldContainer<int> elemToEdge(numElems,numEdgesPerElem);
+//	 std::set < topo_entity * , fecomp > edge_set;
+//	 std::set < topo_entity * , fecomp > face_set;
+//	 std::vector < topo_entity * > edge_vector;
+//	 std::vector < topo_entity * > face_vector;
+//
+//	 // calculate edge and face ids
+//	 int elct = 0;
+//	 for(long long b = 0; b < numElemBlk; b++){
+//		 if(nodes_per_element[b] == 4){
+//		 }
+//		 else if (nodes_per_element[b] == 8){
+//			 //loop over all elements and push their edges onto a set if they are not there already
+//			 for(long long el = 0; el < elements[b]; el++){
+//				 std::set< topo_entity *, fecomp > ::iterator fit;
+////				 for (int i=0; i < numEdgesPerElem; i++){
+////					 topo_entity * teof = new topo_entity;
+////					 for(int j = 0; j < numNodesPerEdge;j++){
+////						 teof->add_node(elmt_node_linkage[b][el*numNodesPerElem + refEdgeToNode(i,j)],global_node_ids.begin().getRawPtr());
+////					 }
+////					 teof->sort();
+////					 fit = edge_set.find(teof);
+////					 if(fit == edge_set.end()){
+////						 teof->local_id = edge_vector.size();
+////						 edge_set.insert(teof);
+////						 elemToEdge(elct,i)= edge_vector.size();
+////						 edge_vector.push_back(teof);
+////					 }
+////					 else{
+////						 elemToEdge(elct,i) = (*fit)->local_id;
+////						 delete teof;
+////					 }
+////				 }
+//				 for (int i=0; i < numFacesPerElem; i++){
 //					 topo_entity * teof = new topo_entity;
-//					 for(int j = 0; j < numNodesPerEdge;j++){
-//						 teof->add_node(elmt_node_linkage[b][el*numNodesPerElem + refEdgeToNode(i,j)],global_node_ids.begin().getRawPtr());
+//					 for(int j = 0; j < numNodesPerFace;j++){
+//						 teof->add_node(elmt_node_linkage[b][el*numNodesPerElem + refFaceToNode(i,j)],global_node_ids.begin().getRawPtr());
 //					 }
 //					 teof->sort();
-//					 fit = edge_set.find(teof);
-//					 if(fit == edge_set.end()){
-//						 teof->local_id = edge_vector.size();
-//						 edge_set.insert(teof);
-//						 elemToEdge(elct,i)= edge_vector.size();
-//						 edge_vector.push_back(teof);
+//					 fit = face_set.find(teof);
+//					 if(fit == face_set.end()){
+//						 teof->local_id = face_vector.size();
+//						 face_set.insert(teof);
+//						 elemToFace(elct,i)= face_vector.size();
+//						 face_vector.push_back(teof);
 //					 }
 //					 else{
-//						 elemToEdge(elct,i) = (*fit)->local_id;
+//						 elemToFace(elct,i) = (*fit)->local_id;
 //						 delete teof;
 //					 }
 //				 }
-				 for (int i=0; i < numFacesPerElem; i++){
-					 topo_entity * teof = new topo_entity;
-					 for(int j = 0; j < numNodesPerFace;j++){
-						 teof->add_node(elmt_node_linkage[b][el*numNodesPerElem + refFaceToNode(i,j)],global_node_ids.begin().getRawPtr());
-					 }
-					 teof->sort();
-					 fit = face_set.find(teof);
-					 if(fit == face_set.end()){
-						 teof->local_id = face_vector.size();
-						 face_set.insert(teof);
-						 elemToFace(elct,i)= face_vector.size();
-						 face_vector.push_back(teof);
-					 }
-					 else{
-						 elemToFace(elct,i) = (*fit)->local_id;
-						 delete teof;
-					 }
-				 }
-				 elct ++;
-			 }
-		 }
-	 }
-
-	 int numFaces = face_vector.size();
+//				 elct ++;
+//			 }
+//		 }
+//	 }
+//
+//	 int numFaces = face_vector.size();
 
 
 	//
@@ -389,42 +389,54 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 	// Container indicating whether a node is on the boundary (1-yes 0-no)
 	node_on_boundary.resize(numNodes);
 
-	faceOnBoundary.resize(numFaces);
+	//faceOnBoundary.resize(numFaces);
 
 	// Get boundary (side set) information
 	long long * sideSetIds = new long long [numSideSets];
-	long long numSidesInSet;
+	long long * numSidesInSet = new long long [numSideSets];
 	long long numDFinSet;
 	int numBndyFaces=0;
 	im_ex_get_side_set_ids_l(id,sideSetIds);
 	for (int i=0; i < numSideSets; ++i) {
-		im_ex_get_side_set_param_l (id,sideSetIds[i], &numSidesInSet, &numDFinSet);
-		if (numSidesInSet > 0){
+		im_ex_get_side_set_param_l (id,sideSetIds[i], &numSidesInSet[i], &numDFinSet);
+		numBndyFaces += numSidesInSet[i];
+	}
+
+	boundary_face_to_elem.resize(numBndyFaces);
+	boundary_face_to_ordinal.resize(numBndyFaces);
+
+	int i_boundary_face = 0;
+	for (int i = 0; i < numSideSets; ++i) {
+		if (numSidesInSet[i] > 0){
 			long long * sideSetElemList = new long long [numSidesInSet];
 			long long * sideSetSideList = new long long [numSidesInSet];
 			im_ex_get_side_set_l (id, sideSetIds[i], sideSetElemList, sideSetSideList);
-			for (int j = 0; j < numSidesInSet; ++j) {
+
+			for (int j = 0; j < numSidesInSet[i]; ++j) {
 				const int iface = sideSetSideList[j]-1;
 				const int ielem = sideSetElemList[j]-1;
 
-				int sideNode0 = cellType.getNodeMap(2,iface,0);
-				int sideNode1 = cellType.getNodeMap(2,iface,1);
-				int sideNode2 = cellType.getNodeMap(2,iface,2);
-				int sideNode3 = cellType.getNodeMap(2,iface,3);
+				boundary_face_to_elem(i_boundary_face) = ielem;
+				boundary_face_to_ordinal(i_boundary_face) = iface;
 
-				faceOnBoundary(elemToFace(ielem,iface)) = 1;
-				numBndyFaces++;
+				for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
+					const int sideNode = cellType.getNodeMap(2,iface,ifacenode);
+					const int local_nodeid = elem_to_node(ielem,sideNode);
+					node_on_boundary(local_nodeid) = 1;
+				}
 
-				node_on_boundary(elem_to_node(ielem,sideNode0)) = 1;
-				node_on_boundary(elem_to_node(ielem,sideNode1)) = 1;
-				node_on_boundary(elem_to_node(ielem,sideNode2)) = 1;
-				node_on_boundary(elem_to_node(ielem,sideNode3)) = 1;
+				i_boundary_face++;
+
 			}
 			delete [] sideSetElemList;
 			delete [] sideSetSideList;
 		}
 	}
 	delete [] sideSetIds;
+	delete [] numSidesInSet;
+
+
+
 
 
 	//
@@ -521,9 +533,12 @@ void Pde::create_cubature_and_basis() {
 
 	int numFieldsFace = faceBasis->getCardinality();
 	faceValues.resize(numFieldsFace, numFacePoints);
+	HGBFaceValues.resize(numFieldsG, numFacePoints);
 
 	// Evaluate basis values at cubature points
 	faceBasis->getValues(faceValues, facePoints, OPERATOR_VALUE);
+	// Evaluate HGRAD basis values at face cubature points
+	faceBasis->getValues(HGBFaceValues, facePoints, OPERATOR_VALUE);
 
 }
 
@@ -660,24 +675,6 @@ void Pde::build_maps_and_create_matrices() {
 				//int worksetCellOrdinal = cell - worksetBegin;
 
 
-				for (int iface = 0; iface < numFacesPerElem; ++iface) {
-					if (faceOnBoundary(elemToFace(cell,iface))) {
-						for (int ipt = 0; ipt < numNodesPerFace; ++ipt) {
-							int localBcellpt = elem_to_node(cell,refFaceToNode(iface,ipt));
-							Tpetra::global_size_t globalBT = as<Tpetra::global_size_t> (global_node_ids[localBcellpt]) + numNodesGlobal;
-
-							for (int cellpt = 0; cellpt < numFieldsG; cellpt++) {
-								int localCellpt  = elem_to_node(cell, cellpt);
-								//globalRow for Tpetra Graph
-								Tpetra::global_size_t globalCellT = as<Tpetra::global_size_t> (global_node_ids[localCellpt]);
-								int globalCell = as<int> (globalCellT);
-								int globalB = as<int> (globalBT);
-								Teuchos::ArrayView<int> globalCellAV = Teuchos::arrayView (&globalCell, 1);
-								overlappedGraph->insertGlobalIndices (globalRowT, globalCellAV);
-							}
-						}
-					}
-				}
 				// "CELL EQUATION" loop for the workset cell: cellRow is
 				// relative to the cell DoF numbering
 				for (int cellRow = 0; cellRow < numFieldsG; cellRow++) {
@@ -698,27 +695,35 @@ void Pde::build_maps_and_create_matrices() {
 						overlappedGraph->insertGlobalIndices (globalRowT, globalColAV);
 					}// *** cell col loop ***
 
-					// add node -> boundary node connectivity
-					if (node_on_boundary(cellRow)) {
-						Tpetra::global_size_t globalBT = globalRowT + numNodesGlobal;
-						int globalB = as<int> (globalBT);
-						Teuchos::ArrayView<int> globalBAV = Teuchos::arrayView (&globalB, 1);
-						overlappedGraph->insertGlobalIndices (globalRowT, globalBAV);
-						// "CELL VARIABLE" loop for the workset cell: cellCol is
-						// relative to the cell DoF numbering
-						for (int cellCol = 0; cellCol < numFieldsG; ++cellCol) {
-							int localCol  = elem_to_node (cell, cellCol);
-							int globalCol = as<int> (global_node_ids[localCol]);
-							//create ArrayView globalCol object for Tpetra
-							Teuchos::ArrayView<int> globalColAV = Teuchos::arrayView (&globalCol, 1);
 
-							//Update Tpetra overlap Graph
-							overlappedGraph->insertGlobalIndices (globalBT, globalColAV);
-						}// *** cell col loop ***
-					}
+
 				}// *** cell row loop ***
 			}// *** workset cell loop **
 		}// *** workset loop ***
+
+
+		// add node -> boundary node connectivity
+		const int num_boundary_faces = boundary_face_to_elem.dimension(0);
+		for (int i = 0; i < num_boundary_faces; ++i) {
+			for (int iface_point = 0; iface_point < numNodesPerFace; ++iface_point) {
+				const int iface = boundary_face_to_ordinal(i);
+				const int ielem = boundary_face_to_elem(i);
+				const int sideNode = cellType.getNodeMap(2,iface,iface_point);
+				const int local_index_bp = elem_to_node(ielem,sideNode);
+				Tpetra::global_size_t global_index_bcp = as<Tpetra::global_size_t> (global_node_ids[local_index_bp]) + numNodesGlobal;
+				int global_index_bcp_int = as<int> (global_index_bcp);
+				Teuchos::ArrayView<int> global_index_bcp_AV = Teuchos::arrayView (&global_index_bcp_int, 1);
+				for (int cellpt = 0; cellpt < numFieldsG; cellpt++) {
+					const int local_index_p  = elem_to_node(ielem, cellpt);
+					//globalRow for Tpetra Graph
+					Tpetra::global_size_t global_index_p = as<Tpetra::global_size_t> (global_node_ids[local_index_p]);
+					int global_index_p_int = as<int> (global_index_p);
+					Teuchos::ArrayView<int> global_index_p_AV = Teuchos::arrayView (&global_index_p_int, 1);
+					overlappedGraph->insertGlobalIndices (global_index_bcp, global_index_p_AV);
+					overlappedGraph->insertGlobalIndices (global_index_p, global_index_bcp_AV);
+				}
+			}
+		}
 
 		// Fill-complete overlapping distribution Graph.
 		overlappedGraph->fillComplete ();
@@ -773,7 +778,7 @@ void Pde::integrate(const ST requested_dt) {
 
 
 void Pde::make_LHS_and_RHS () {
-	using namespace Intrepid;
+
 	using Tpetra::global_size_t;
 	using Teuchos::Array;
 	using Teuchos::ArrayRCP;
@@ -813,345 +818,11 @@ void Pde::make_LHS_and_RHS () {
 			rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
 	oRHS->setAllToScalar (STS::zero ());
 
-	/**********************************************************************************/
-	/******************** BOUNDARY CONDITIONS ***************************/
-	/**********************************************************************************/
-
-	const int faceDim       = faceCubature->getDimension ();
-	const int numFacePoints = faceCubature->getNumPoints ();
-	const int numFacesPerElem = cellType.getSideCount();
-
-	FieldContainer<double> bndyFaceVal(numBndyFaces);
-	FieldContainer<double> refFacePoints(numFacePoints,spaceDim);
-	FieldContainer<double> bndyFacePoints(1,numFacePoints,spaceDim);
-	FieldContainer<double> bndyFaceJacobians(1,numFacePoints,spaceDim,spaceDim);
-	FieldContainer<double> faceNorm(1,numFacePoints,spaceDim);
-	FieldContainer<double> uDotNormal(1,numFacePoints);
-	FieldContainer<double> uFace(numFacePoints,spaceDim);
-	FieldContainer<double> nodes(1, numNodesPerElem, spaceDim);
-
-	int ibface=0;
-
-	for (int ielem=0; ielem<numElems; ielem++) {
-		for (int inode=0; inode<numNodesPerElem; inode++) {
-			nodes(0,inode,0) = node_coord(elem_to_node(ielem,inode),0);
-			nodes(0,inode,1) = node_coord(elem_to_node(ielem,inode),1);
-			nodes(0,inode,2) = node_coord(elem_to_node(ielem,inode),2);
-		}
-		for (int iface=0; iface<numFacesPerElem; iface++){
-			if(faceOnBoundary(elemToFace(ielem,iface))){
-
-				// map evaluation points from reference face to reference cell
-				IntrepidCTools::mapToReferenceSubcell(refFacePoints,
-						facePoints,
-						2, iface, cellType);
-
-				// calculate Jacobian
-				IntrepidCTools::setJacobian(bndyFaceJacobians, refFacePoints,
-						nodes, cellType);
-
-				// map evaluation points from reference cell to physical cell
-				IntrepidCTools::mapToPhysicalFrame(bndyFacePoints,
-						refFacePoints,
-						nodes, cellType);
-
-				// Compute face normals
-				IntrepidCTools::getPhysicalFaceNormals(faceNorm,
-						bndyFaceJacobians,
-						iface, cellType);
-
-				// evaluate exact solution and dot with normal
-				for(int nPt = 0; nPt < numFacePoints; nPt++){
-
-					double x = bndyFacePoints(0, nPt, 0);
-					double y = bndyFacePoints(0, nPt, 1);
-					double z = bndyFacePoints(0, nPt, 2);
-
-					evalu(uFace(nPt,0), uFace(nPt,1), uFace(nPt,2), x, y, z);
-					uDotNormal(0,nPt)=(uFace(nPt,0)*faceNorm(0,nPt,0)+uFace(nPt,1)*faceNorm(0,nPt,1)+uFace(nPt,2)*faceNorm(0,nPt,2));
-				}
-
-				// integrate
-				for(int nPt = 0; nPt < numFacePoints; nPt++){
-					bndyFaceVal(ibface)=bndyFaceVal(ibface)+uDotNormal(0,nPt)*paramFaceWeights(nPt);
-				}
-				ibface++;
-			} // end if face on boundary
-
-		} // end loop over element faces
-
-	} // end loop over elements
+	boundary_integrals(oLHS,oRHS);
+	volume_integrals(oLHS,oRHS);
 
 
 
-	/**********************************************************************************/
-	/******************** DEFINE WORKSETS AND LOOP OVER THEM **************************/
-	/**********************************************************************************/
-
-	LOG(2,"Building discretization matricies");
-
-	// Define desired workset size and count how many worksets there are
-	// on this processor's mesh block
-	int desiredWorksetSize = numElems; // change to desired workset size!
-	//int desiredWorksetSize = 100;    // change to desired workset size!
-	int numWorksets        = numElems/desiredWorksetSize;
-
-	// When numElems is not divisible by desiredWorksetSize, increase
-	// workset count by 1
-	if (numWorksets*desiredWorksetSize < numElems) {
-		numWorksets += 1;
-	}
-
-	LOG(2,"Desired workset size:             " << desiredWorksetSize << std::endl
-				<< "Number of worksets (per process): " << numWorksets);
-
-	for (int workset = 0; workset < numWorksets; ++workset) {
-		// Compute cell numbers where the workset starts and ends
-		int worksetSize  = 0;
-		int worksetBegin = (workset + 0)*desiredWorksetSize;
-		int worksetEnd   = (workset + 1)*desiredWorksetSize;
-
-		// When numElems is not divisible by desiredWorksetSize, the last
-		// workset ends at numElems.
-		worksetEnd = (worksetEnd <= numElems) ? worksetEnd : numElems;
-
-		// Now we know the actual workset size and can allocate the array
-		// for the cell nodes.
-		worksetSize = worksetEnd - worksetBegin;
-		FieldContainer<ST> cellWorkset (worksetSize, numNodesPerElem, spaceDim);
-
-		// array to contain boundary normals (=0 if not on boundary)
-		FieldContainer<ST> boundary_normals(worksetSize, spaceDim);
-
-		// Copy coordinates into cell workset
-		int cellCounter = 0;
-		for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
-			for (int node = 0; node < numNodesPerElem; ++node) {
-				const int node_num = elem_to_node(cell, node);
-				cellWorkset(cellCounter, node, 0) = node_coord(node_num, 0);
-				cellWorkset(cellCounter, node, 1) = node_coord(node_num, 1);
-				cellWorkset(cellCounter, node, 2) = node_coord(node_num, 2);
-
-			}
-			++cellCounter;
-		}
-
-		/**********************************************************************************/
-		/*                                Allocate arrays                                 */
-		/**********************************************************************************/
-
-		// Containers for Jacobians, integration measure & cubature points in workset cells
-		FieldContainer<ST> worksetJacobian  (worksetSize, numCubPoints, spaceDim, spaceDim);
-		FieldContainer<ST> worksetJacobInv  (worksetSize, numCubPoints, spaceDim, spaceDim);
-		FieldContainer<ST> worksetJacobDet  (worksetSize, numCubPoints);
-		FieldContainer<ST> worksetCubWeights(worksetSize, numCubPoints);
-		FieldContainer<ST> worksetCubPoints (worksetSize, numCubPoints, cubDim);
-
-		// Containers for basis values transformed to workset cells and
-		// them multiplied by cubature weights
-		FieldContainer<ST> worksetHGBValues        (worksetSize, numFieldsG, numCubPoints);
-		FieldContainer<ST> worksetHGBValuesWeighted(worksetSize, numFieldsG, numCubPoints);
-		FieldContainer<ST> worksetHGBGrads         (worksetSize, numFieldsG, numCubPoints, spaceDim);
-		FieldContainer<ST> worksetHGBGradsWeighted (worksetSize, numFieldsG, numCubPoints, spaceDim);
-
-		// Additional arrays used in analytic assembly
-//		FieldContainer<ST> u_coeffs(worksetSize, numFieldsG);
-//		FieldContainer<ST> u_FE_val(worksetSize, numCubPoints);
-//		FieldContainer<ST> df_of_u(worksetSize, numCubPoints);
-//		FieldContainer<ST> df_of_u_times_basis(worksetSize, numFieldsG, numCubPoints);
-
-		// Containers for diffusive & advective fluxes & non-conservative
-		// adv. term and reactive terms
-		FieldContainer<ST> worksetDiffusiveFlux(worksetSize, numFieldsG, numCubPoints, spaceDim);
-
-		// Containers for material values and source term. Require
-		// user-defined functions
-		FieldContainer<ST> worksetMaterialVals (worksetSize, numCubPoints, spaceDim, spaceDim);
-
-		// Containers for workset contributions to the discretization
-		// matrix and the right hand side
-		FieldContainer<ST> worksetStiffMatrix (worksetSize, numFieldsG, numFieldsG);
-		FieldContainer<ST> worksetMassMatrix (worksetSize, numFieldsG, numFieldsG);
-		FieldContainer<ST> worksetGradOp (worksetSize, numFieldsG, numFieldsG);
-
-
-		/**********************************************************************************/
-		/*                                Calculate Jacobians                             */
-		/**********************************************************************************/
-
-		IntrepidCTools::setJacobian(worksetJacobian, cubPoints, cellWorkset, cellType);
-		IntrepidCTools::setJacobianInv(worksetJacobInv, worksetJacobian );
-		IntrepidCTools::setJacobianDet(worksetJacobDet, worksetJacobian );
-
-		/**********************************************************************************/
-		/*          Cubature Points to Physical Frame and Compute Data                    */
-		/**********************************************************************************/
-
-		// Map cubature points to physical frame.
-		IntrepidCTools::mapToPhysicalFrame (worksetCubPoints, cubPoints, cellWorkset, cellType);
-
-		// Evaluate the material tensor A at cubature points.
-		evaluateMaterialTensor (worksetMaterialVals, worksetCubPoints);
-
-		/**********************************************************************************/
-		/*                         Compute Stiffness Matrix                               */
-		/**********************************************************************************/
-
-		// Transform basis gradients to physical frame:
-		IntrepidFSTools::HGRADtransformGRAD<ST> (worksetHGBGrads,   // DF^{-T}(grad u)
-				worksetJacobInv,
-				HGBGrads);
-		// Compute integration measure for workset cells:
-		IntrepidFSTools::computeCellMeasure<ST> (worksetCubWeights, // Det(DF)*w = J*w
-				worksetJacobDet,
-				cubWeights);
-		// Multiply transformed (workset) gradients with weighted measure
-		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBGradsWeighted, // DF^{-T}(grad u)*J*w
-				worksetCubWeights,
-				worksetHGBGrads);
-		// Compute the diffusive flux:
-		IntrepidFSTools::tensorMultiplyDataField<ST> (worksetDiffusiveFlux, // A*(DF^{-T}(grad u)
-				worksetMaterialVals,
-				worksetHGBGrads);
-		// Integrate to compute workset diffusion contribution to global matrix:
-		IntrepidFSTools::integrate<ST> (worksetStiffMatrix, // (DF^{-T}(grad u)*J*w)*(A*DF^{-T}(grad u))
-				worksetHGBGradsWeighted,
-				worksetDiffusiveFlux,
-				COMP_BLAS);
-
-		/**********************************************************************************/
-		/*                         Compute Mass Matrix                               */
-		/**********************************************************************************/
-
-
-		//Transform basis values to physical frame:
-		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
-				HGBValues);
-		// Multiply transformed (workset) gradients with weighted measure
-		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
-				worksetCubWeights,
-				worksetHGBValues);
-		// Integrate to compute workset contribution to global matrix:
-		IntrepidFSTools::integrate<ST> (worksetMassMatrix, // (u)*(u)*w
-				worksetHGBValues,
-				worksetHGBValuesWeighted,
-				COMP_BLAS);
-
-//		//Mass Lumped?????
-//		//Transform basis values to physical frame:
-//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
-//				HGBValues);
-//		// Multiply transformed (workset) gradients with weighted measure
-//		cubWeights.resize(1,numCubPoints);
-//		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
-//				worksetCubWeights,
-//				worksetHGBValues);
-//		cubWeights.resize(numCubPoints);
-//		// Integrate to compute workset contribution to global matrix:
-//		IntrepidFSTools::integrate<ST> (worksetMassMatrix, // (u)*(u)*w
-//				worksetHGBValues,
-//				worksetHGBValuesWeighted,
-//				COMP_BLAS);
-
-
-//		/**********************************************************************************/
-//		/*                                   Compute Reaction                             */
-//		/**********************************************************************************/
-//
-//
-//		// Transform basis values to physical frame:
-//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
-//				HGBValues);
-//		// Multiply transformed (workset) values with weighted measure
-//		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*J*w
-//				worksetCubWeights,
-//				worksetHGBValues);
-//		// Integrate worksetSourceTerm against weighted basis function set
-//		IntrepidFSTools::integrate<ST> (worksetSource, // f.(u)*J*w
-//				worksetSourceTerm,
-//				worksetHGBValuesWeighted,
-//				COMP_BLAS);
-//
-//		      // u_coeffs equals the value of u_coeffsAD
-//		      for(int i=0; i<numFieldsG; i++){
-//		        u_coeffs(0,i) = u_coeffsAD(0,i).val();
-//		      }
-//		      // represent value of the current state (iterate) as a linear combination of the basis functions
-//		      u_FE_val.initialize();
-//		      fst::evaluate<double>(u_FE_val, u_coeffs, hexGValsTransformed);
-//
-//		      // evaluate derivative of the nonlinear term and multiply by basis function
-//		      dfunc_u(df_of_u, u_FE_val);
-//		      fst::scalarMultiplyDataField<double>(df_of_u_times_basis, df_of_u, hexGValsTransformed);
-//
-//		      // integrate to account for nonlinear reaction term
-//		      fst::integrate<double>(localPDEjacobian, df_of_u_times_basis, hexGValsTransformedWeighted, INTREPID_INTEGRATE_COMP_ENGINE, true);
-
-//		/**********************************************************************************/
-//		/*                                   Compute Source                               */
-//		/**********************************************************************************/
-//
-//		// Transform basis values to physical frame:
-//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
-//				HGBValues);
-//		// Multiply transformed (workset) values with weighted measure
-//		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*J*w
-//				worksetCubWeights,
-//				worksetHGBValues);
-//		// Integrate worksetSourceTerm against weighted basis function set
-//		IntrepidFSTools::integrate<ST> (worksetSource, // f.(u)*J*w
-//				worksetSourceTerm,
-//				worksetHGBValuesWeighted,
-//				COMP_BLAS);
-
-		/**********************************************************************************/
-		/*                         Assemble into Global Matrix                            */
-		/**********************************************************************************/
-
-		RCP<Teuchos::Time> timerAssembleGlobalMatrix =
-				TimeMonitor::getNewTimer ("Assemble overlapped global matrix and Source");
-		{
-			TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleGlobalMatrix);
-
-			// "WORKSET CELL" loop: local cell ordinal is relative to numElems
-			for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
-
-				// Compute cell ordinal relative to the current workset
-				const int worksetCellOrdinal = cell - worksetBegin;
-
-				// "CELL EQUATION" loop for the workset cell: cellRow is
-				// relative to the cell DoF numbering.
-				for (int cellRow = 0; cellRow < numFieldsG; ++cellRow) {
-					int localRow  = elem_to_node (cell, cellRow);
-					int globalRow = as<int> (global_node_ids[localRow]);
-//					ST sourceTermContribution = worksetSource (worksetCellOrdinal, cellRow);
-//					ArrayView<ST> sourceTermContributionAV =
-//							arrayView (&sourceTermContribution, 1);
-//
-//					SourceVector->sumIntoGlobalValue (globalRow, sourceTermContribution);
-
-					// "CELL VARIABLE" loop for the workset cell: cellCol is
-					// relative to the cell DoF numbering.
-					for (int cellCol = 0; cellCol < numFieldsG; cellCol++){
-						const int localCol  = elem_to_node(cell, cellCol);
-						int globalCol = as<int> (global_node_ids[localCol]);
-						ArrayView<int> globalColAV = arrayView<int> (&globalCol, 1);
-						ST operatorMatrixContributionLHS =
-								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
-								+ omega*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
-						ST operatorMatrixContributionRHS =
-								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
-								- (1.0-omega)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
-
-						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
-								arrayView<ST> (&operatorMatrixContributionLHS, 1));
-						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
-								arrayView<ST> (&operatorMatrixContributionRHS, 1));
-					}// *** cell col loop ***
-				}// *** cell row loop ***
-			}// *** workset cell loop **
-		} // *** stop timer ***
-	}// *** workset loop ***
 
 	//////////////////////////////////////////////////////////////////////////////
 	// Export sparse matrix and right-hand side from overlapping row Map
@@ -1396,6 +1067,446 @@ std::string Pde::makeMeshInput (const int nx, const int ny, const int nz) {
 
 vtkUnstructuredGrid* Pde::get_grid() {
 	return vtk_grid;
+}
+
+void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
+		RCP<sparse_matrix_type> oRHS) {
+	using namespace Intrepid;
+	typedef Intrepid::FunctionSpaceTools IntrepidFSTools;
+	typedef Intrepid::RealSpaceTools<ST> IntrepidRSTools;
+	typedef Intrepid::CellTools<ST>      IntrepidCTools;
+
+	const int numBoundaryFaces = boundary_face_to_elem.dimension(0);
+	const int numNodesPerFace = faceType.getNodeCount();
+	const int numFieldsG = HGradBasis->getCardinality();
+	const int numFieldsFace = faceBasis->getCardinality();
+	const int numCubPoints = faceCubature->getNumPoints();
+	const int cubDim = cubature->getDimension();
+
+
+	/**********************************************************************************/
+	/******************** DEFINE WORKSETS AND LOOP OVER THEM **************************/
+	/**********************************************************************************/
+
+	// Define desired workset size and count how many worksets there are
+	// on this processor's mesh block
+	int desiredWorksetSize = numBoundaryFaces; // change to desired workset size!
+	//int desiredWorksetSize = 100;    // change to desired workset size!
+	int numWorksets        = numBoundaryFaces/desiredWorksetSize;
+
+	// When numElems is not divisible by desiredWorksetSize, increase
+	// workset count by 1
+	if (numWorksets*desiredWorksetSize < numBoundaryFaces) {
+		numWorksets += 1;
+	}
+
+	LOG(2,"Desired workset size:             " << desiredWorksetSize << std::endl
+			<< "Number of worksets (per process): " << numWorksets);
+
+	for (int workset = 0; workset < numWorksets; ++workset) {
+		// Compute cell numbers where the workset starts and ends
+		int worksetSize  = 0;
+		int worksetBegin = (workset + 0)*desiredWorksetSize;
+		int worksetEnd   = (workset + 1)*desiredWorksetSize;
+
+		// When numElems is not divisible by desiredWorksetSize, the last
+		// workset ends at numElems.
+		worksetEnd = (worksetEnd <= numBoundaryFaces) ? worksetEnd : numBoundaryFaces;
+
+		// Now we know the actual workset size and can allocate the array
+		// for the cell nodes.
+		worksetSize = worksetEnd - worksetBegin;
+		FieldContainer<ST> cellWorkset (worksetSize, numNodesPerFace, spaceDim);
+
+		// array to contain boundary normals (=0 if not on boundary)
+		FieldContainer<ST> boundary_normals(worksetSize, spaceDim);
+
+		// Copy coordinates into cell workset
+		int faceCounter = 0;
+		for (int face = worksetBegin; face < worksetEnd; ++face) {
+			for (int node = 0; node < numNodesPerFace; ++node) {
+				const int node_num = boundary_face_to_nodes(face, node);
+				cellWorkset(faceCounter, node, 0) = node_coord(node_num, 0);
+				cellWorkset(faceCounter, node, 1) = node_coord(node_num, 1);
+				cellWorkset(faceCounter, node, 2) = node_coord(node_num, 2);
+
+			}
+			++faceCounter;
+		}
+
+		/**********************************************************************************/
+		/*                                Allocate arrays                                 */
+		/**********************************************************************************/
+
+		FieldContainer<ST> worksetCubWeights(worksetSize, numCubPoints);
+		FieldContainer<ST> worksetCubPoints (worksetSize, numCubPoints, cubDim);
+
+		// Containers for basis values transformed to workset cells and
+		// them multiplied by cubature weights
+		FieldContainer<ST> worksetHGBValues        (worksetSize, numFieldsG, numCubPoints);
+		FieldContainer<ST> worksetHGBValuesWeighted(worksetSize, numFieldsG, numCubPoints);
+		FieldContainer<ST> worksetFaceValues        (worksetSize, numFieldsFace, numCubPoints);
+		FieldContainer<ST> worksetFaceValuesWeighted(worksetSize, numFieldsFace, numCubPoints);
+
+		// Containers for workset contributions to the boundary integral
+		FieldContainer<ST> worksetWeakBC (worksetSize, numFieldsG, numFieldsG);
+
+
+		/**********************************************************************************/
+		/*          Cubature Points to Physical Frame and Compute Data                    */
+		/**********************************************************************************/
+		// map evaluation points from reference face to reference cell
+		IntrepidCTools::mapToReferenceSubcell(refFacePoints,
+				facePoints,
+				2, iface, cellType);
+
+		// Map cubature points to physical frame.
+		IntrepidCTools::mapToPhysicalFrame (worksetCubPoints, facePoints, cellWorkset, cellType);
+
+		// Evaluate the material tensor A at cubature points.
+		evaluateMaterialTensor (worksetMaterialVals, worksetCubPoints);
+
+		/**********************************************************************************/
+		/*                         Compute Mass Matrix                               */
+		/**********************************************************************************/
+
+
+		//Transform basis values to physical frame:
+		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+				HGBValues);
+		// Multiply transformed (workset) gradients with weighted measure
+		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
+				worksetCubWeights,
+				worksetHGBValues);
+		// Integrate to compute workset contribution to global matrix:
+		IntrepidFSTools::integrate<ST> (worksetMassMatrix, // (u)*(u)*w
+				worksetHGBValues,
+				worksetHGBValuesWeighted,
+				COMP_BLAS);
+
+
+		/**********************************************************************************/
+		/*                         Assemble into Global Matrix                            */
+		/**********************************************************************************/
+
+		RCP<Teuchos::Time> timerAssembleGlobalMatrix =
+				TimeMonitor::getNewTimer ("Assemble overlapped global matrix and Source");
+		{
+			TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleGlobalMatrix);
+
+			// "WORKSET CELL" loop: local cell ordinal is relative to numElems
+			for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
+
+				// Compute cell ordinal relative to the current workset
+				const int worksetCellOrdinal = cell - worksetBegin;
+
+				// "CELL EQUATION" loop for the workset cell: cellRow is
+				// relative to the cell DoF numbering.
+				for (int cellRow = 0; cellRow < numFieldsG; ++cellRow) {
+					int localRow  = elem_to_node (cell, cellRow);
+					int globalRow = as<int> (global_node_ids[localRow]);
+					//					ST sourceTermContribution = worksetSource (worksetCellOrdinal, cellRow);
+					//					ArrayView<ST> sourceTermContributionAV =
+					//							arrayView (&sourceTermContribution, 1);
+					//
+					//					SourceVector->sumIntoGlobalValue (globalRow, sourceTermContribution);
+
+					// "CELL VARIABLE" loop for the workset cell: cellCol is
+					// relative to the cell DoF numbering.
+					for (int cellCol = 0; cellCol < numFieldsG; cellCol++){
+						const int localCol  = elem_to_node(cell, cellCol);
+						int globalCol = as<int> (global_node_ids[localCol]);
+						ArrayView<int> globalColAV = arrayView<int> (&globalCol, 1);
+						ST operatorMatrixContributionLHS =
+								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
+								+ omega*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
+						ST operatorMatrixContributionRHS =
+								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
+								- (1.0-omega)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
+
+						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
+								arrayView<ST> (&operatorMatrixContributionLHS, 1));
+						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
+								arrayView<ST> (&operatorMatrixContributionRHS, 1));
+					}// *** cell col loop ***
+				}// *** cell row loop ***
+			}// *** workset cell loop **
+		} // *** stop timer ***
+	}// *** workset loop ***
+}
+
+void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
+		RCP<sparse_matrix_type> oRHS) {
+	using namespace Intrepid;
+
+	/**********************************************************************************/
+	/******************** DEFINE WORKSETS AND LOOP OVER THEM **************************/
+	/**********************************************************************************/
+
+	LOG(2,"Building discretization matricies");
+
+	// Define desired workset size and count how many worksets there are
+	// on this processor's mesh block
+	int desiredWorksetSize = numElems; // change to desired workset size!
+	//int desiredWorksetSize = 100;    // change to desired workset size!
+	int numWorksets        = numElems/desiredWorksetSize;
+
+	// When numElems is not divisible by desiredWorksetSize, increase
+	// workset count by 1
+	if (numWorksets*desiredWorksetSize < numElems) {
+		numWorksets += 1;
+	}
+
+	LOG(2,"Desired workset size:             " << desiredWorksetSize << std::endl
+			<< "Number of worksets (per process): " << numWorksets);
+
+	for (int workset = 0; workset < numWorksets; ++workset) {
+		// Compute cell numbers where the workset starts and ends
+		int worksetSize  = 0;
+		int worksetBegin = (workset + 0)*desiredWorksetSize;
+		int worksetEnd   = (workset + 1)*desiredWorksetSize;
+
+		// When numElems is not divisible by desiredWorksetSize, the last
+		// workset ends at numElems.
+		worksetEnd = (worksetEnd <= numElems) ? worksetEnd : numElems;
+
+		// Now we know the actual workset size and can allocate the array
+		// for the cell nodes.
+		worksetSize = worksetEnd - worksetBegin;
+		FieldContainer<ST> cellWorkset (worksetSize, numNodesPerElem, spaceDim);
+
+		// array to contain boundary normals (=0 if not on boundary)
+		FieldContainer<ST> boundary_normals(worksetSize, spaceDim);
+
+		// Copy coordinates into cell workset
+		int cellCounter = 0;
+		for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
+			for (int node = 0; node < numNodesPerElem; ++node) {
+				const int node_num = elem_to_node(cell, node);
+				cellWorkset(cellCounter, node, 0) = node_coord(node_num, 0);
+				cellWorkset(cellCounter, node, 1) = node_coord(node_num, 1);
+				cellWorkset(cellCounter, node, 2) = node_coord(node_num, 2);
+
+			}
+			++cellCounter;
+		}
+
+		/**********************************************************************************/
+		/*                                Allocate arrays                                 */
+		/**********************************************************************************/
+
+		// Containers for Jacobians, integration measure & cubature points in workset cells
+		FieldContainer<ST> worksetJacobian  (worksetSize, numCubPoints, spaceDim, spaceDim);
+		FieldContainer<ST> worksetJacobInv  (worksetSize, numCubPoints, spaceDim, spaceDim);
+		FieldContainer<ST> worksetJacobDet  (worksetSize, numCubPoints);
+		FieldContainer<ST> worksetCubWeights(worksetSize, numCubPoints);
+		FieldContainer<ST> worksetCubPoints (worksetSize, numCubPoints, cubDim);
+
+		// Containers for basis values transformed to workset cells and
+		// them multiplied by cubature weights
+		FieldContainer<ST> worksetHGBValues        (worksetSize, numFieldsG, numCubPoints);
+		FieldContainer<ST> worksetHGBValuesWeighted(worksetSize, numFieldsG, numCubPoints);
+		FieldContainer<ST> worksetHGBGrads         (worksetSize, numFieldsG, numCubPoints, spaceDim);
+		FieldContainer<ST> worksetHGBGradsWeighted (worksetSize, numFieldsG, numCubPoints, spaceDim);
+
+		// Additional arrays used in analytic assembly
+		//		FieldContainer<ST> u_coeffs(worksetSize, numFieldsG);
+		//		FieldContainer<ST> u_FE_val(worksetSize, numCubPoints);
+		//		FieldContainer<ST> df_of_u(worksetSize, numCubPoints);
+		//		FieldContainer<ST> df_of_u_times_basis(worksetSize, numFieldsG, numCubPoints);
+
+		// Containers for diffusive & advective fluxes & non-conservative
+		// adv. term and reactive terms
+		FieldContainer<ST> worksetDiffusiveFlux(worksetSize, numFieldsG, numCubPoints, spaceDim);
+
+		// Containers for material values and source term. Require
+		// user-defined functions
+		FieldContainer<ST> worksetMaterialVals (worksetSize, numCubPoints, spaceDim, spaceDim);
+
+		// Containers for workset contributions to the discretization
+		// matrix and the right hand side
+		FieldContainer<ST> worksetStiffMatrix (worksetSize, numFieldsG, numFieldsG);
+		FieldContainer<ST> worksetMassMatrix (worksetSize, numFieldsG, numFieldsG);
+		FieldContainer<ST> worksetGradOp (worksetSize, numFieldsG, numFieldsG);
+
+
+		/**********************************************************************************/
+		/*                                Calculate Jacobians                             */
+		/**********************************************************************************/
+
+		IntrepidCTools::setJacobian(worksetJacobian, cubPoints, cellWorkset, cellType);
+		IntrepidCTools::setJacobianInv(worksetJacobInv, worksetJacobian );
+		IntrepidCTools::setJacobianDet(worksetJacobDet, worksetJacobian );
+
+		/**********************************************************************************/
+		/*          Cubature Points to Physical Frame and Compute Data                    */
+		/**********************************************************************************/
+
+		// Map cubature points to physical frame.
+		IntrepidCTools::mapToPhysicalFrame (worksetCubPoints, cubPoints, cellWorkset, cellType);
+
+		// Evaluate the material tensor A at cubature points.
+		evaluateMaterialTensor (worksetMaterialVals, worksetCubPoints);
+
+		/**********************************************************************************/
+		/*                         Compute Stiffness Matrix                               */
+		/**********************************************************************************/
+
+		// Transform basis gradients to physical frame:
+		IntrepidFSTools::HGRADtransformGRAD<ST> (worksetHGBGrads,   // DF^{-T}(grad u)
+				worksetJacobInv,
+				HGBGrads);
+		// Compute integration measure for workset cells:
+		IntrepidFSTools::computeCellMeasure<ST> (worksetCubWeights, // Det(DF)*w = J*w
+				worksetJacobDet,
+				cubWeights);
+		// Multiply transformed (workset) gradients with weighted measure
+		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBGradsWeighted, // DF^{-T}(grad u)*J*w
+				worksetCubWeights,
+				worksetHGBGrads);
+		// Compute the diffusive flux:
+		IntrepidFSTools::tensorMultiplyDataField<ST> (worksetDiffusiveFlux, // A*(DF^{-T}(grad u)
+				worksetMaterialVals,
+				worksetHGBGrads);
+		// Integrate to compute workset diffusion contribution to global matrix:
+		IntrepidFSTools::integrate<ST> (worksetStiffMatrix, // (DF^{-T}(grad u)*J*w)*(A*DF^{-T}(grad u))
+				worksetHGBGradsWeighted,
+				worksetDiffusiveFlux,
+				COMP_BLAS);
+
+		/**********************************************************************************/
+		/*                         Compute Mass Matrix                               */
+		/**********************************************************************************/
+
+
+		//Transform basis values to physical frame:
+		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+				HGBValues);
+		// Multiply transformed (workset) gradients with weighted measure
+		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
+				worksetCubWeights,
+				worksetHGBValues);
+		// Integrate to compute workset contribution to global matrix:
+		IntrepidFSTools::integrate<ST> (worksetMassMatrix, // (u)*(u)*w
+				worksetHGBValues,
+				worksetHGBValuesWeighted,
+				COMP_BLAS);
+
+		//		//Mass Lumped?????
+		//		//Transform basis values to physical frame:
+		//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+		//				HGBValues);
+		//		// Multiply transformed (workset) gradients with weighted measure
+		//		cubWeights.resize(1,numCubPoints);
+		//		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
+		//				worksetCubWeights,
+		//				worksetHGBValues);
+		//		cubWeights.resize(numCubPoints);
+		//		// Integrate to compute workset contribution to global matrix:
+		//		IntrepidFSTools::integrate<ST> (worksetMassMatrix, // (u)*(u)*w
+		//				worksetHGBValues,
+		//				worksetHGBValuesWeighted,
+		//				COMP_BLAS);
+
+
+		//		/**********************************************************************************/
+		//		/*                                   Compute Reaction                             */
+		//		/**********************************************************************************/
+		//
+		//
+		//		// Transform basis values to physical frame:
+		//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+		//				HGBValues);
+		//		// Multiply transformed (workset) values with weighted measure
+		//		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*J*w
+		//				worksetCubWeights,
+		//				worksetHGBValues);
+		//		// Integrate worksetSourceTerm against weighted basis function set
+		//		IntrepidFSTools::integrate<ST> (worksetSource, // f.(u)*J*w
+		//				worksetSourceTerm,
+		//				worksetHGBValuesWeighted,
+		//				COMP_BLAS);
+		//
+		//		      // u_coeffs equals the value of u_coeffsAD
+		//		      for(int i=0; i<numFieldsG; i++){
+		//		        u_coeffs(0,i) = u_coeffsAD(0,i).val();
+		//		      }
+		//		      // represent value of the current state (iterate) as a linear combination of the basis functions
+		//		      u_FE_val.initialize();
+		//		      fst::evaluate<double>(u_FE_val, u_coeffs, hexGValsTransformed);
+		//
+		//		      // evaluate derivative of the nonlinear term and multiply by basis function
+		//		      dfunc_u(df_of_u, u_FE_val);
+		//		      fst::scalarMultiplyDataField<double>(df_of_u_times_basis, df_of_u, hexGValsTransformed);
+		//
+		//		      // integrate to account for nonlinear reaction term
+		//		      fst::integrate<double>(localPDEjacobian, df_of_u_times_basis, hexGValsTransformedWeighted, INTREPID_INTEGRATE_COMP_ENGINE, true);
+
+		//		/**********************************************************************************/
+		//		/*                                   Compute Source                               */
+		//		/**********************************************************************************/
+		//
+		//		// Transform basis values to physical frame:
+		//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+		//				HGBValues);
+		//		// Multiply transformed (workset) values with weighted measure
+		//		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*J*w
+		//				worksetCubWeights,
+		//				worksetHGBValues);
+		//		// Integrate worksetSourceTerm against weighted basis function set
+		//		IntrepidFSTools::integrate<ST> (worksetSource, // f.(u)*J*w
+		//				worksetSourceTerm,
+		//				worksetHGBValuesWeighted,
+		//				COMP_BLAS);
+
+		/**********************************************************************************/
+		/*                         Assemble into Global Matrix                            */
+		/**********************************************************************************/
+
+		RCP<Teuchos::Time> timerAssembleGlobalMatrix =
+				TimeMonitor::getNewTimer ("Assemble overlapped global matrix and Source");
+		{
+			TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleGlobalMatrix);
+
+			// "WORKSET CELL" loop: local cell ordinal is relative to numElems
+			for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
+
+				// Compute cell ordinal relative to the current workset
+				const int worksetCellOrdinal = cell - worksetBegin;
+
+				// "CELL EQUATION" loop for the workset cell: cellRow is
+				// relative to the cell DoF numbering.
+				for (int cellRow = 0; cellRow < numFieldsG; ++cellRow) {
+					int localRow  = elem_to_node (cell, cellRow);
+					int globalRow = as<int> (global_node_ids[localRow]);
+					//					ST sourceTermContribution = worksetSource (worksetCellOrdinal, cellRow);
+					//					ArrayView<ST> sourceTermContributionAV =
+					//							arrayView (&sourceTermContribution, 1);
+					//
+					//					SourceVector->sumIntoGlobalValue (globalRow, sourceTermContribution);
+
+					// "CELL VARIABLE" loop for the workset cell: cellCol is
+					// relative to the cell DoF numbering.
+					for (int cellCol = 0; cellCol < numFieldsG; cellCol++){
+						const int localCol  = elem_to_node(cell, cellCol);
+						int globalCol = as<int> (global_node_ids[localCol]);
+						ArrayView<int> globalColAV = arrayView<int> (&globalCol, 1);
+						ST operatorMatrixContributionLHS =
+								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
+								+ omega*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
+						ST operatorMatrixContributionRHS =
+								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
+								- (1.0-omega)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
+
+						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
+								arrayView<ST> (&operatorMatrixContributionLHS, 1));
+						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
+								arrayView<ST> (&operatorMatrixContributionRHS, 1));
+					}// *** cell col loop ***
+				}// *** cell row loop ***
+			}// *** workset cell loop **
+		} // *** stop timer ***
+	}// *** workset loop ***
 }
 
 void Pde::create_vtk_grid() {

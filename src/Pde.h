@@ -133,17 +133,18 @@ private:
 	long long numNodesGlobal;
 	int numNodesPerFace;
 	Intrepid::FieldContainer<int> elem_to_node;
-	Intrepid::FieldContainer<int> elemToFace;
+	//Intrepid::FieldContainer<int> elemToFace;
 	Intrepid::FieldContainer<ST> node_coord;
 	Teuchos::Array<long long> global_node_ids;
 	Teuchos::Array<int> ownedBCNodes;
 	Teuchos::Array<int> BCNodes;
 	Intrepid::FieldContainer<int> node_on_boundary;
-	Intrepid::FieldContainer<int> faceOnBoundary;
+	//Intrepid::FieldContainer<int> faceOnBoundary;
+	Intrepid::FieldContainer<int> boundary_face_to_elem;
+	Intrepid::FieldContainer<int> boundary_face_to_ordinal;
 	// nodeIsOwned must be a raw array, because std::vector<T> (and
 	// therefore Teuchos::Array<T>) has a specialization for T = bool
 	// that messes up the pointer type.
-	// TODO: delete this when class is deleted....
 	bool* node_is_owned;
 	shards::CellTopology cellType;
 	shards::CellTopology faceType;
@@ -159,6 +160,7 @@ private:
 
 	RCP<Intrepid::Basis<ST, Intrepid::FieldContainer<ST> > >  HGradBasis;
 	Intrepid::FieldContainer<ST> HGBValues;
+	Intrepid::FieldContainer<ST> HGBFaceValues;
 	Intrepid::FieldContainer<ST> HGBGrads;
 
 	RCP<Intrepid::Basis<ST, Intrepid::FieldContainer<ST> > >  faceBasis;
@@ -183,6 +185,8 @@ private:
 	void create_cubature_and_basis();
 	void build_maps_and_create_matrices();
 	void make_LHS_and_RHS();
+	void boundary_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS);
+	void volume_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS);
 	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 	void solve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
