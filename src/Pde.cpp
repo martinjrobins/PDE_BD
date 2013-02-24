@@ -733,7 +733,7 @@ void Pde::build_maps_and_create_matrices() {
 		ownedGraph->fillComplete ();
 	}
 
-	LOG(2,"Constructing stiffness matrix and vectors");
+	LOG(2,"Constructing LHS and RHS matrix and vectors");
 
 	//
 	// Construct stiffness matrix, right-hand side vector, and exact
@@ -747,7 +747,6 @@ void Pde::build_maps_and_create_matrices() {
 	//
 	LHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
 	RHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
-	boundary_grad_op = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
 	//F = rcp (new vector_type (globalMapG));
 	X = rcp (new vector_type (globalMapG));
 
@@ -1542,6 +1541,7 @@ void Pde::create_vtk_grid() {
 	 */
 	vtkSmartPointer<vtkPoints> newPts = vtkSmartPointer<vtkPoints>::New();
 	const int num_points = node_coord.dimension(0);
+	const int num_boundary_points = ownedBCNodes.size();
 	for (int i = 0; i < num_points; i++) {
 		newPts->InsertNextPoint(node_coord(i,0),node_coord(i,1),node_coord(i,2));
 	}
@@ -1551,8 +1551,8 @@ void Pde::create_vtk_grid() {
 	 */
 	vtkSmartPointer<vtkDoubleArray> newScalars = vtkSmartPointer<vtkDoubleArray>::New();
 	const int num_local_entries = X->getLocalLength();
-	ASSERT(num_local_entries == num_points, "size in X vector not same as number of points");
-	newScalars->SetArray(X->getDataNonConst(0).getRawPtr(),num_local_entries,1);
+	ASSERT(num_local_entries == num_points + num_boundary_points, "size in X vector not same as number of points");
+	newScalars->SetArray(X->getDataNonConst(0).getRawPtr(),num_points,1);
 	newScalars->SetName("Concentration");
 
 	/*
