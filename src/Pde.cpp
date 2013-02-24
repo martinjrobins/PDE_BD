@@ -779,35 +779,8 @@ void Pde::integrate(const ST requested_dt) {
 
 void Pde::make_LHS_and_RHS () {
 
-	using Tpetra::global_size_t;
-	using Teuchos::Array;
-	using Teuchos::ArrayRCP;
-	using Teuchos::ArrayView;
-	using Teuchos::arrayView;
-	using Teuchos::as;
-
 	using Teuchos::TimeMonitor;
-	typedef Teuchos::ArrayView<LO>::size_type size_type;
 	typedef Teuchos::ScalarTraits<ST> STS;
-
-
-	// Number of independent variables fixed at 3
-	typedef Sacado::Fad::SFad<ST, 3>     Fad3;
-	typedef Intrepid::FunctionSpaceTools IntrepidFSTools;
-	typedef Intrepid::RealSpaceTools<ST> IntrepidRSTools;
-	typedef Intrepid::CellTools<ST>      IntrepidCTools;
-
-	LOG(2,"makeMatrixAndRightHandSide:");
-	Teuchos::OSTab tab (std::cout);
-
-	const int numFieldsG = HGradBasis->getCardinality();
-	const int numCubPoints = cubature->getNumPoints();
-	const int numElems = elem_to_node.dimension(0);
-	const long long numNodes = global_node_ids.size();
-	const int numNodesPerElem = elem_to_node.dimension(1);
-	const int cubDim = cubature->getDimension();
-	const int numBCNodes = ownedBCNodes.size();
-
 	//
 	// Overlapped distribution objects:
 	//
@@ -818,10 +791,21 @@ void Pde::make_LHS_and_RHS () {
 			rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
 	oRHS->setAllToScalar (STS::zero ());
 
-	boundary_integrals(oLHS,oRHS);
-	volume_integrals(oLHS,oRHS);
+	RCP<Teuchos::Time> timerAssembleBoundaryIntegral =
+			TimeMonitor::getNewTimer ("Assemble Boundary Integral");
+	{
+		TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleBoundaryIntegral);
 
+		boundary_integrals(oLHS,oRHS);
+	}
 
+	RCP<Teuchos::Time> timerAssembleVolumeIntegral =
+			TimeMonitor::getNewTimer ("Assemble Volume Integral");
+	{
+		TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleVolumeIntegral);
+
+		volume_integrals(oLHS,oRHS);
+	}
 
 
 	//////////////////////////////////////////////////////////////////////////////
@@ -1072,6 +1056,11 @@ vtkUnstructuredGrid* Pde::get_grid() {
 void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 		RCP<sparse_matrix_type> oRHS) {
 	using namespace Intrepid;
+	using Teuchos::ArrayView;
+	using Teuchos::arrayView;
+	using Teuchos::as;
+
+	using Teuchos::TimeMonitor;
 	typedef Intrepid::FunctionSpaceTools IntrepidFSTools;
 	typedef Intrepid::RealSpaceTools<ST> IntrepidRSTools;
 	typedef Intrepid::CellTools<ST>      IntrepidCTools;
@@ -1117,19 +1106,35 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 		// for the cell nodes.
 		worksetSize = worksetEnd - worksetBegin;
 		FieldContainer<ST> cellWorkset (worksetSize, numNodesPerFace, spaceDim);
+		FieldContainer<ST> worksetRefCubPoints (worksetSize, numCubPoints, spaceDim);
+
 
 		// array to contain boundary normals (=0 if not on boundary)
 		FieldContainer<ST> boundary_normals(worksetSize, spaceDim);
 
-		// Copy coordinates into cell workset
+		// Copy coordinates and face cubature points (in the ref cell domain)
+		// into cell workset
 		int faceCounter = 0;
 		for (int face = worksetBegin; face < worksetEnd; ++face) {
-			for (int node = 0; node < numNodesPerFace; ++node) {
-				const int node_num = boundary_face_to_nodes(face, node);
-				cellWorkset(faceCounter, node, 0) = node_coord(node_num, 0);
-				cellWorkset(faceCounter, node, 1) = node_coord(node_num, 1);
-				cellWorkset(faceCounter, node, 2) = node_coord(node_num, 2);
+			const int ielem = boundary_face_to_elem(face);
+			const int iface = boundary_face_to_ordinal(face);
+			for (int node = 0; node < numFieldsG; ++node) {
+				const int node_num = elem_to_node(ielem, node);
+				for (int j = 0; j < spaceDim; ++j) {
 
+				}
+				cellWorkset(faceCounter, node, j) = node_coord(node_num, j);
+			}
+			FieldContainer<ST> tmp_worksetRefCubPoints (1, numCubPoints, spaceDim);
+
+			IntrepidCTools::mapToReferenceSubcell(tmp_worksetRefCubPoints,
+							facePoints,
+							2, iface, cellType);
+
+			for (int i = 0; i < numCubPoints; ++i) {
+				for (int j = 0; j < spaceDim; ++j) {
+					worksetRefCubPoints(faceCounter,i,j) = tmp_worksetRefCubPoints(1,i,j);
+				}
 			}
 			++faceCounter;
 		}
@@ -1138,6 +1143,8 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 		/*                                Allocate arrays                                 */
 		/**********************************************************************************/
 
+		FieldContainer<ST> worksetJacobian  (worksetSize, numCubPoints, spaceDim, spaceDim);
+		FieldContainer<ST> worksetJacobDet  (worksetSize, numCubPoints);
 		FieldContainer<ST> worksetCubWeights(worksetSize, numCubPoints);
 		FieldContainer<ST> worksetCubPoints (worksetSize, numCubPoints, cubDim);
 
@@ -1146,41 +1153,46 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 		FieldContainer<ST> worksetHGBValues        (worksetSize, numFieldsG, numCubPoints);
 		FieldContainer<ST> worksetHGBValuesWeighted(worksetSize, numFieldsG, numCubPoints);
 		FieldContainer<ST> worksetFaceValues        (worksetSize, numFieldsFace, numCubPoints);
-		FieldContainer<ST> worksetFaceValuesWeighted(worksetSize, numFieldsFace, numCubPoints);
 
 		// Containers for workset contributions to the boundary integral
-		FieldContainer<ST> worksetWeakBC (worksetSize, numFieldsG, numFieldsG);
+		FieldContainer<ST> worksetWeakBC (worksetSize, numFieldsFace, numFieldsG);
+
+		/**********************************************************************************/
+		/*                                Calculate Jacobians                             */
+		/**********************************************************************************/
+		IntrepidCTools::setJacobian(worksetJacobian, worksetRefCubPoints,
+				cellWorkset, cellType);
+		IntrepidCTools::setJacobianDet(worksetJacobDet, worksetJacobian );
 
 
 		/**********************************************************************************/
-		/*          Cubature Points to Physical Frame and Compute Data                    */
+		/*          Cubature Points to Physical Frame                                     */
 		/**********************************************************************************/
-		// map evaluation points from reference face to reference cell
-		IntrepidCTools::mapToReferenceSubcell(refFacePoints,
-				facePoints,
-				2, iface, cellType);
-
-		// Map cubature points to physical frame.
-		IntrepidCTools::mapToPhysicalFrame (worksetCubPoints, facePoints, cellWorkset, cellType);
-
-		// Evaluate the material tensor A at cubature points.
-		evaluateMaterialTensor (worksetMaterialVals, worksetCubPoints);
+		IntrepidCTools::mapToPhysicalFrame (worksetCubPoints, worksetRefCubPoints,
+				cellWorkset, cellType);
 
 		/**********************************************************************************/
-		/*                         Compute Mass Matrix                               */
+		/*                         Compute u*mu Matrix                               */
 		/**********************************************************************************/
 
 
-		//Transform basis values to physical frame:
+		//Transform cell basis values to physical frame:
 		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
-				HGBValues);
-		// Multiply transformed (workset) gradients with weighted measure
+				HGBFaceValues);
+		//Transform face basis values to physical frame:
+		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetFaceValues, // clones basis values (mu)
+				faceValues);
+		// Compute integration measure for workset cells:
+		IntrepidFSTools::computeCellMeasure<ST> (worksetCubWeights, // Det(DF)*w = J*w
+				worksetJacobDet,
+				cubWeights);
+		// Multiply transformed (workset) values with weighted measure
 		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
 				worksetCubWeights,
 				worksetHGBValues);
 		// Integrate to compute workset contribution to global matrix:
-		IntrepidFSTools::integrate<ST> (worksetMassMatrix, // (u)*(u)*w
-				worksetHGBValues,
+		IntrepidFSTools::integrate<ST> (worksetWeakBC, // (u)*(u)*w
+				worksetFaceValues,
 				worksetHGBValuesWeighted,
 				COMP_BLAS);
 
@@ -1195,38 +1207,38 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 			TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleGlobalMatrix);
 
 			// "WORKSET CELL" loop: local cell ordinal is relative to numElems
-			for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
+			for (int face = worksetBegin; face < worksetEnd; ++face) {
 
 				// Compute cell ordinal relative to the current workset
-				const int worksetCellOrdinal = cell - worksetBegin;
+				const int worksetCellOrdinal = face - worksetBegin;
 
-				// "CELL EQUATION" loop for the workset cell: cellRow is
-				// relative to the cell DoF numbering.
-				for (int cellRow = 0; cellRow < numFieldsG; ++cellRow) {
-					int localRow  = elem_to_node (cell, cellRow);
-					int globalRow = as<int> (global_node_ids[localRow]);
-					//					ST sourceTermContribution = worksetSource (worksetCellOrdinal, cellRow);
-					//					ArrayView<ST> sourceTermContributionAV =
-					//							arrayView (&sourceTermContribution, 1);
-					//
-					//					SourceVector->sumIntoGlobalValue (globalRow, sourceTermContribution);
-
-					// "CELL VARIABLE" loop for the workset cell: cellCol is
+				for (int face_pt = 0; face_pt < numNodesPerFace; ++face_pt) {
+					const int iface = boundary_face_to_ordinal(face);
+					const int ielem = boundary_face_to_elem(face);
+					const int sideNode = cellType.getNodeMap(2,iface,face_pt);
+					const LO local_face_pt_id = elem_to_node(ielem,sideNode);
+					const GO global_face_pt_id =
+							as<int> (global_node_ids[local_face_pt_id]) + numNodesGlobal;
+					ArrayView<GO> global_face_pt_AV = arrayView<GO> (&global_face_pt_id, 1);
+					// "CELL EQUATION" loop for the workset cell: cellRow is
 					// relative to the cell DoF numbering.
-					for (int cellCol = 0; cellCol < numFieldsG; cellCol++){
-						const int localCol  = elem_to_node(cell, cellCol);
-						int globalCol = as<int> (global_node_ids[localCol]);
-						ArrayView<int> globalColAV = arrayView<int> (&globalCol, 1);
-						ST operatorMatrixContributionLHS =
-								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
-								+ omega*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
-						ST operatorMatrixContributionRHS =
-								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
-								- (1.0-omega)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
+					for (int cell_pt = 0; cell_pt < numFieldsG; ++cell_pt) {
+						LO local_cell_pt_id  = elem_to_node (ielem, cell_pt);
+						GO global_cell_pt_id = as<GO> (global_node_ids[local_cell_pt_id]);
 
-						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
+						ArrayView<GO> global_cell_pt_AV = arrayView<GO> (&global_cell_pt_id, 1);
+						ST operatorMatrixContributionLHS =
+								omega*worksetWeakBC (worksetCellOrdinal, cell_pt, face_pt);
+						ST operatorMatrixContributionRHS =
+								(1.0-omega)*worksetWeakBC (worksetCellOrdinal, cell_pt, face_pt);
+						ST operatorMatrixContributionRHS_neg = -operatorMatrixContributionRHS;
+						oLHS->sumIntoGlobalValues (global_cell_pt_id, global_face_pt_AV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
-						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
+						oLHS->sumIntoGlobalValues (global_face_pt_id, global_cell_pt_AV,
+								arrayView<ST> (&operatorMatrixContributionLHS, 1));
+						oRHS->sumIntoGlobalValues (global_cell_pt_id, global_face_pt_AV,
+								arrayView<ST> (&operatorMatrixContributionRHS_neg, 1));
+						oRHS->sumIntoGlobalValues (global_face_pt_id, global_cell_pt_AV,
 								arrayView<ST> (&operatorMatrixContributionRHS, 1));
 					}// *** cell col loop ***
 				}// *** cell row loop ***
@@ -1238,6 +1250,21 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 		RCP<sparse_matrix_type> oRHS) {
 	using namespace Intrepid;
+	using Teuchos::ArrayView;
+	using Teuchos::arrayView;
+	using Teuchos::as;
+
+	using Teuchos::TimeMonitor;
+
+	typedef Intrepid::FunctionSpaceTools IntrepidFSTools;
+	typedef Intrepid::RealSpaceTools<ST> IntrepidRSTools;
+	typedef Intrepid::CellTools<ST>      IntrepidCTools;
+
+	const int numFieldsG = HGradBasis->getCardinality();
+	const int numCubPoints = cubature->getNumPoints();
+	const int numElems = elem_to_node.dimension(0);
+	const long long numNodes = global_node_ids.size();
+	const int cubDim = cubature->getDimension();
 
 	/**********************************************************************************/
 	/******************** DEFINE WORKSETS AND LOOP OVER THEM **************************/
@@ -1281,7 +1308,7 @@ void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 		// Copy coordinates into cell workset
 		int cellCounter = 0;
 		for (int cell = worksetBegin; cell < worksetEnd; ++cell) {
-			for (int node = 0; node < numNodesPerElem; ++node) {
+			for (int node = 0; node < numFieldsG; ++node) {
 				const int node_num = elem_to_node(cell, node);
 				cellWorkset(cellCounter, node, 0) = node_coord(node_num, 0);
 				cellWorkset(cellCounter, node, 1) = node_coord(node_num, 1);
