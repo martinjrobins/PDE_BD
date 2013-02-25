@@ -1580,7 +1580,7 @@ void Pde::create_vtk_grid() {
 	vtkSmartPointer<vtkPoints> boundary_Pts = vtkSmartPointer<vtkPoints>::New();
 	const int num_overlapped_boundary_points = BCNodes.size();
 	for (int i = 0; i < num_overlapped_boundary_points; i++) {
-		boundary_Pts->InsertNextPoint(node_coord(BCNodes(i),0),node_coord(BCNodes(i),1),node_coord(BCNodes(i),2));
+		boundary_Pts->InsertNextPoint(node_coord(BCNodes[i],0),node_coord(BCNodes[i],1),node_coord(BCNodes[i],2));
 	}
 
 	/*
