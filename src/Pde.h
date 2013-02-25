@@ -66,6 +66,20 @@
 #include "vtkDoubleArray.h"
 #include "vtkHexahedron.h"
 
+// STK includes
+#include "Ionit_Initializer.h"
+#include "stk_io/IossBridge.hpp"
+#include "stk_io/MeshReadWriteUtils.hpp"
+#include "stk_util/parallel/Parallel.hpp"
+#include "stk_mesh/base/FieldData.hpp"
+#include "stk_mesh/base/MetaData.hpp"
+#include "stk_mesh/base/BulkData.hpp"
+#include "stk_mesh/base/Comm.hpp"
+#include "stk_mesh/base/Selector.hpp"
+#include "stk_mesh/base/GetEntities.hpp"
+#include "stk_mesh/base/GetBuckets.hpp"
+#include "stk_mesh/fem/CreateAdjacentEntities.hpp"
+
 using Teuchos::RCP;
 using Teuchos::rcp;
 
@@ -139,6 +153,8 @@ private:
 	Teuchos::Array<int> ownedBCNodes;
 	Teuchos::Array<int> BCNodes;
 	Intrepid::FieldContainer<int> node_on_boundary;
+	Intrepid::FieldContainer<int> node_on_boundary_id;
+
 	Intrepid::FieldContainer<int> boundary_face_to_elem;
 	Intrepid::FieldContainer<int> boundary_face_to_ordinal;
 	// nodeIsOwned must be a raw array, because std::vector<T> (and
@@ -148,6 +164,7 @@ private:
 	shards::CellTopology cellType;
 	shards::CellTopology faceType;
 	Intrepid::FieldContainer<int> refFaceToNode;
+
 
 	/*
 	 * Basis
@@ -190,6 +207,7 @@ private:
 	void solve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
 	void create_vtk_grid();
+	void create_stk_grid();
 
 
 	template<typename Scalar>

@@ -33,6 +33,8 @@
 #include <set>
 
 
+
+
 Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 	my_rank = Mpi::mpiSession->getRank();
 	num_procs = Mpi::mpiSession->getNProc();
@@ -592,7 +594,7 @@ void Pde::build_maps_and_create_matrices() {
 				ownedGIDs[oidx] = as<int> (global_node_ids[i]);
 				++oidx;
 				if (node_on_boundary(i)) {
-					ownedGIDs[ownedNodes+obidx] = as<int> (global_node_ids[i]+numNodesGlobal);
+					ownedGIDs[ownedNodes+obidx] = as<int> (numNodesGlobal + obidx);
 					ownedBCNodes[obidx] = oidx;
 					++obidx;
 				}
@@ -620,7 +622,7 @@ void Pde::build_maps_and_create_matrices() {
 		for (int i = 0; i < numNodes; ++i) {
 			overlappedGIDs[i] = as<int> (global_node_ids[i]);
 			if (node_on_boundary(i)) {
-				overlappedGIDs[i+numNodes] = as<int> (global_node_ids[i]+numNodesGlobal);
+				overlappedGIDs[i+numNodes] = as<int> (numNodesGlobal + iBC);
 				BCNodes[iBC] = i;
 				++iBC;
 			}
@@ -1610,5 +1612,93 @@ void Pde::create_vtk_grid() {
 
 	}
 }
+
+void Pde::create_stk_grid() {
+	/**********************************************************************************/
+	/*********************************** READ MESH ************************************/
+	/**********************************************************************************/
+
+	// 3-D meshes only
+	int spaceDim = 3;
+
+	// initialize io
+	Ioss::Init::Initializer io;
+
+	// define meta data
+	stk::mesh::fem::FEMMetaData femMetaData(spaceDim);
+	stk::mesh::MetaData &metaData = stk::mesh::fem::FEMMetaData::get_meta_data(femMetaData);
+
+	// read in mesh from file
+	stk::io::create_input_mesh("exodusii","test.s",MPI_COMM_WORLD,femMetaData,meshData);
+
+	// commit meta data
+	femMetaData.commit();
+
+	// populate mesh entities (nodes, elements, etc.)
+	stk::mesh::BulkData  bulkData(metaData,MPI_COMM_WORLD);
+	stk::io::populate_bulk_data(bulkData, meshData);
+
+	/*  Not necessary for Poisson problem
+	   // create adjacent entities
+	     stk::mesh::PartVector empty_add_parts;
+	     stk::mesh::create_adjacent_entities(bulkData, empty_add_parts);
+	 */
+
+	// get entity ranks
+	const stk::mesh::EntityRank elementRank = femMetaData.element_rank();
+	const stk::mesh::EntityRank nodeRank    = femMetaData.node_rank();
+
+	// get nodes
+	std::vector<stk::mesh::Entity*> nodes;
+	stk::mesh::get_entities(bulkData, nodeRank, nodes);
+	int numNodes = nodes.size();
+
+	// get elems
+	std::vector<stk::mesh::Entity*> elems;
+	stk::mesh::get_entities(bulkData, elementRank, elems);
+	int numElems = elems.size();
+
+	if (MyPID == 0) {
+		std::cout << " Number of Elements: " << numElems << " \n";
+		std::cout << "    Number of Nodes: " << numNodes << " \n\n";
+	}
+
+	// get coordinates field
+	stk::mesh::Field<double, stk::mesh::Cartesian> *coords =
+			femMetaData.get_field<stk::mesh::Field<double, stk::mesh::Cartesian> >("coordinates");
+
+	// get buckets containing entities of node rank
+	const std::vector<stk::mesh::Bucket*> & nodeBuckets = bulkData.buckets( nodeRank );
+	std::vector<stk::mesh::Entity*> bcNodes;
+
+	// loop over all mesh parts
+	const stk::mesh::PartVector & all_parts = femMetaData.get_parts();
+	for (stk::mesh::PartVector::const_iterator i  = all_parts.begin();
+			i != all_parts.end(); ++i) {
+
+		stk::mesh::Part & part = **i ;
+
+		// if part only contains nodes, then it is a node set
+		//   ! this assumes that the only node set defined is the set
+		//   ! of boundary nodes
+		if (part.primary_entity_rank() == nodeRank) {
+			stk::mesh::Selector bcNodeSelector(part);
+			stk::mesh::get_selected_entities(bcNodeSelector, nodeBuckets, bcNodes);
+		}
+
+	} // end loop over mesh parts
+
+	// if no boundary node set was found give a warning
+	if (bcNodes.size() == 0) {
+		if (MyPID == 0) {
+			std::cout << "\n     Warning! - No boundary node set found. \n";
+			std::cout << "  Boundary conditions will not be applied correctly. \n\n";
+		}
+	}
+
+	if(MyPID==0) {std::cout << "Read mesh                                   "
+		<< Time.ElapsedTime() << " sec \n"; Time.ResetStartTime();}
+}
+
 
 
