@@ -98,6 +98,7 @@ public:
 	void integrate(const ST dt);
 	void add_particle(const ST x, const ST y, const ST z);
 	vtkUnstructuredGrid* get_grid();
+	vtkUnstructuredGrid* get_boundary();
 private:
 
 	/*
@@ -133,13 +134,11 @@ private:
 	long long numNodesGlobal;
 	int numNodesPerFace;
 	Intrepid::FieldContainer<int> elem_to_node;
-	//Intrepid::FieldContainer<int> elemToFace;
 	Intrepid::FieldContainer<ST> node_coord;
 	Teuchos::Array<long long> global_node_ids;
 	Teuchos::Array<int> ownedBCNodes;
 	Teuchos::Array<int> BCNodes;
 	Intrepid::FieldContainer<int> node_on_boundary;
-	//Intrepid::FieldContainer<int> faceOnBoundary;
 	Intrepid::FieldContainer<int> boundary_face_to_elem;
 	Intrepid::FieldContainer<int> boundary_face_to_ordinal;
 	// nodeIsOwned must be a raw array, because std::vector<T> (and
@@ -178,7 +177,7 @@ private:
 	/*
 	 * vtk unstructured grid
 	 */
-	vtkSmartPointer<vtkUnstructuredGrid> vtk_grid;
+	vtkSmartPointer<vtkUnstructuredGrid> vtk_grid,vtk_boundary;
 
 
 	void setup_pamgen_mesh(const std::string& meshInput);

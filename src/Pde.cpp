@@ -29,6 +29,7 @@
 #include "Constants.h"
 #include "MyMpi.h"
 #include <vtkPointData.h>
+#include <vtkQuad.h>
 #include <set>
 
 
@@ -408,8 +409,8 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 	int i_boundary_face = 0;
 	for (int i = 0; i < numSideSets; ++i) {
 		if (numSidesInSet[i] > 0){
-			long long * sideSetElemList = new long long [numSidesInSet];
-			long long * sideSetSideList = new long long [numSidesInSet];
+			long long * sideSetElemList = new long long [numSidesInSet[i]];
+			long long * sideSetSideList = new long long [numSidesInSet[i]];
 			im_ex_get_side_set_l (id, sideSetIds[i], sideSetElemList, sideSetSideList);
 
 			for (int j = 0; j < numSidesInSet[i]; ++j) {
@@ -767,11 +768,6 @@ void Pde::integrate(const ST requested_dt) {
 		 * Solve FEM system
 		 */
 		solve();
-
-		/*
-		 * calculate gradient
-		 */
-		boundary_grad_op->apply(*X.getConst(),*X_grad);
 	}
 }
 
@@ -1052,6 +1048,10 @@ vtkUnstructuredGrid* Pde::get_grid() {
 	return vtk_grid;
 }
 
+vtkUnstructuredGrid* Pde::get_boundary() {
+	return vtk_boundary;
+}
+
 void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 		RCP<sparse_matrix_type> oRHS) {
 	using namespace Intrepid;
@@ -1120,9 +1120,8 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 			for (int node = 0; node < numFieldsG; ++node) {
 				const int node_num = elem_to_node(ielem, node);
 				for (int j = 0; j < spaceDim; ++j) {
-
+					cellWorkset(faceCounter, node, j) = node_coord(node_num, j);
 				}
-				cellWorkset(faceCounter, node, j) = node_coord(node_num, j);
 			}
 			FieldContainer<ST> tmp_worksetRefCubPoints (1, numCubPoints, spaceDim);
 
@@ -1216,7 +1215,7 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 					const int ielem = boundary_face_to_elem(face);
 					const int sideNode = cellType.getNodeMap(2,iface,face_pt);
 					const LO local_face_pt_id = elem_to_node(ielem,sideNode);
-					const GO global_face_pt_id =
+					GO global_face_pt_id =
 							as<int> (global_node_ids[local_face_pt_id]) + numNodesGlobal;
 					ArrayView<GO> global_face_pt_AV = arrayView<GO> (&global_face_pt_id, 1);
 					// "CELL EQUATION" loop for the workset cell: cellRow is
@@ -1299,7 +1298,7 @@ void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 		// Now we know the actual workset size and can allocate the array
 		// for the cell nodes.
 		worksetSize = worksetEnd - worksetBegin;
-		FieldContainer<ST> cellWorkset (worksetSize, numNodesPerElem, spaceDim);
+		FieldContainer<ST> cellWorkset (worksetSize, numFieldsG, spaceDim);
 
 		// array to contain boundary normals (=0 if not on boundary)
 		FieldContainer<ST> boundary_normals(worksetSize, spaceDim);
@@ -1536,13 +1535,13 @@ void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 }
 
 void Pde::create_vtk_grid() {
+	//TODO: assumes 1 cpu
 	/*
 	 * setup points
 	 */
 	vtkSmartPointer<vtkPoints> newPts = vtkSmartPointer<vtkPoints>::New();
-	const int num_points = node_coord.dimension(0);
-	const int num_boundary_points = ownedBCNodes.size();
-	for (int i = 0; i < num_points; i++) {
+	const int num_overlapped_points = node_coord.dimension(0);
+	for (int i = 0; i < num_overlapped_points; i++) {
 		newPts->InsertNextPoint(node_coord(i,0),node_coord(i,1),node_coord(i,2));
 	}
 
@@ -1551,16 +1550,10 @@ void Pde::create_vtk_grid() {
 	 */
 	vtkSmartPointer<vtkDoubleArray> newScalars = vtkSmartPointer<vtkDoubleArray>::New();
 	const int num_local_entries = X->getLocalLength();
-	ASSERT(num_local_entries == num_points + num_boundary_points, "size in X vector not same as number of points");
-	newScalars->SetArray(X->getDataNonConst(0).getRawPtr(),num_points,1);
+	newScalars->SetArray(X->getDataNonConst(0).getRawPtr(),num_overlapped_points,1);
 	newScalars->SetName("Concentration");
 
-	/*
-	 * setup scalar grad data
-	 */
-	vtkSmartPointer<vtkDoubleArray> newScalars = vtkSmartPointer<vtkDoubleArray>::New();
-	newScalars->SetArray(X_grad->getDataNonConst(0).getRawPtr(),num_local_entries,1);
-	newScalars->SetName("Concentration Gradient");
+
 
 	/*
 	 * setup cells
@@ -1578,6 +1571,42 @@ void Pde::create_vtk_grid() {
 			newHex->GetPointIds()-> SetId(j,elem_to_node(i,j));
 		}
 		vtk_grid->InsertNextCell(newHex->GetCellType(),newHex->GetPointIds());
+
+	}
+
+	/*
+	 * setup boundary points
+	 */
+	vtkSmartPointer<vtkPoints> boundary_Pts = vtkSmartPointer<vtkPoints>::New();
+	const int num_overlapped_boundary_points = BCNodes.size();
+	for (int i = 0; i < num_overlapped_boundary_points; i++) {
+		boundary_Pts->InsertNextPoint(node_coord(BCNodes(i),0),node_coord(BCNodes(i),1),node_coord(BCNodes(i),2));
+	}
+
+	/*
+	 * setup Outflow data
+	 */
+	vtkSmartPointer<vtkDoubleArray> outflow_scalar = vtkSmartPointer<vtkDoubleArray>::New();
+	outflow_scalar->SetArray((X->getDataNonConst(0) + num_overlapped_points).getRawPtr(),num_overlapped_boundary_points,1);
+	outflow_scalar->SetName("Outflow");
+
+	/*
+	 * setup boundary faces
+	 */
+	const int num_faces = boundary_face_to_elem.dimension(0);
+	vtk_boundary = vtkSmartPointer<vtkUnstructuredGrid>::New();
+	vtk_boundary->Allocate(num_faces,num_faces);
+	vtk_boundary->SetPoints(boundary_Pts);
+	vtk_boundary->GetPointData()->SetScalars(outflow_scalar);
+	const int num_nodes_per_face = faceType.getNodeCount();
+	for (int i = 0; i < num_nodes_per_face; ++i) {
+		vtkSmartPointer<vtkQuad> newQuad = vtkSmartPointer<vtkQuad>::New();
+		newQuad->GetPointIds()-> SetNumberOfIds(num_nodes_per_face);
+		for (int j = 0; j < num_nodes_per_face; ++j) {
+			newQuad->GetPointIds()-> SetId(j,
+					elem_to_node(boundary_face_to_elem(i),boundary_face_to_ordinal(i)));
+		}
+		vtk_boundary->InsertNextCell(newQuad->GetCellType(),newQuad->GetPointIds());
 
 	}
 }

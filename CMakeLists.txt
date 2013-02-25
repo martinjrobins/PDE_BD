@@ -55,7 +55,7 @@ enable_testing()
 # Recurse into the "Hello" and "Demo" subdirectories. This does not actually 
 # cause another cmake executable to run. The same process will walk through 
 # the project's entire directory structure. 
-set(PDE_BD_INCLUDE_DIRECTORIES  "/scratch/robinsonm/pkg/include" ${pde_bd_SOURCE_DIR}/src ${VTK_INCLUDE_DIRS} ${MPI_CXX_INCLUDE_PATH} ${Trilinos_INCLUDE_DIRS} ${Trilinos_TPL_INCLUDE_DIRS})
+set(PDE_BD_INCLUDE_DIRECTORIES  "/home/mrobins/pkg/tina/include" "/scratch/robinsonm/pkg/include" ${pde_bd_SOURCE_DIR}/src ${VTK_INCLUDE_DIRS} ${MPI_CXX_INCLUDE_PATH} ${Trilinos_INCLUDE_DIRS} ${Trilinos_TPL_INCLUDE_DIRS})
 add_subdirectory (src)
 add_subdirectory (python)
 add_subdirectory (tests)

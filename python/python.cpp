@@ -56,6 +56,7 @@ BOOST_PYTHON_MODULE(pypdb) {
 			.def("integrate",&Pde::integrate)
 			.def("add_particle",&Pde::add_particle)
 			.def("get_grid",&Pde::get_grid, return_value_policy<return_opaque_pointer>())
+			.def("get_boundary",&Pde::get_boundary, return_value_policy<return_opaque_pointer>())
 			;
     class_<Species>("Species");
     class_<std::vector<double> >("DoubleList")
