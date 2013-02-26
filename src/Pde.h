@@ -67,9 +67,6 @@
 #include "vtkHexahedron.h"
 
 // STK includes
-#include "Ionit_Initializer.h"
-#include "stk_io/IossBridge.hpp"
-#include "stk_io/MeshReadWriteUtils.hpp"
 #include "stk_util/parallel/Parallel.hpp"
 #include "stk_mesh/base/FieldData.hpp"
 #include "stk_mesh/base/MetaData.hpp"
@@ -88,7 +85,6 @@ class Pde {
 	typedef int    LO;
 	typedef int    GO;
 	typedef Tpetra::DefaultPlatform::DefaultPlatformType::NodeType  Node;
-
 	typedef Tpetra::CrsMatrix<ST, LO, GO, Node>    sparse_matrix_type;
 	typedef Tpetra::Operator<ST, LO, GO, Node>     operator_type;
 	typedef Tpetra::MultiVector<ST, LO, GO, Node>  multivector_type;
@@ -151,6 +147,7 @@ private:
 	Intrepid::FieldContainer<ST> node_coord;
 	Teuchos::Array<long long> global_node_ids;
 	Teuchos::Array<int> ownedBCNodes;
+
 	Teuchos::Array<int> BCNodes;
 	Intrepid::FieldContainer<int> node_on_boundary;
 	Intrepid::FieldContainer<int> node_on_boundary_id;

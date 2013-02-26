@@ -33,7 +33,7 @@
 #include <set>
 
 
-
+#include <MatrixMarket_Tpetra.hpp>
 
 Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 	my_rank = Mpi::mpiSession->getRank();
@@ -45,7 +45,7 @@ Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 
 
 	std::string meshInput;
-	meshInput = makeMeshInput(1.0/dx, 1.0/dx, 1.0/dx);
+	meshInput = makeMeshInput(1.0/dx, 1, 1);
 
 	setup_pamgen_mesh(meshInput);
 
@@ -419,16 +419,25 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 				const int iface = sideSetSideList[j]-1;
 				const int ielem = sideSetElemList[j]-1;
 
-				boundary_face_to_elem(i_boundary_face) = ielem;
-				boundary_face_to_ordinal(i_boundary_face) = iface;
-
+				bool on_x_equal_one = true;
 				for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
 					const int sideNode = cellType.getNodeMap(2,iface,ifacenode);
 					const int local_nodeid = elem_to_node(ielem,sideNode);
-					node_on_boundary(local_nodeid) = 1;
+					on_x_equal_one &= node_coord(local_nodeid,0)==1.0;
 				}
 
-				i_boundary_face++;
+				if (on_x_equal_one) {
+					boundary_face_to_elem(i_boundary_face) = ielem;
+					boundary_face_to_ordinal(i_boundary_face) = iface;
+
+					for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
+						const int sideNode = cellType.getNodeMap(2,iface,ifacenode);
+						const int local_nodeid = elem_to_node(ielem,sideNode);
+						node_on_boundary(local_nodeid) = 1;
+					}
+
+					i_boundary_face++;
+				}
 
 			}
 			delete [] sideSetElemList;
@@ -541,7 +550,6 @@ void Pde::create_cubature_and_basis() {
 	// Evaluate basis values at cubature points
 	faceBasis->getValues(faceValues, facePoints, OPERATOR_VALUE);
 	// Evaluate HGRAD basis values at face cubature points
-	faceBasis->getValues(HGBFaceValues, facePoints, OPERATOR_VALUE);
 
 }
 
@@ -568,7 +576,7 @@ void Pde::build_maps_and_create_matrices() {
 		// Count owned and boundary nodes
 		int ownedNodes = 0;
 		int ownedBoundaryNodes = 0;
-
+		node_on_boundary_id.resize(numNodes);
 		for (int i = 0; i < numNodes; ++i) {
 			if (node_is_owned[i]) {
 				++ownedNodes;
@@ -577,12 +585,14 @@ void Pde::build_maps_and_create_matrices() {
 				}
 			}
 			if (node_on_boundary(i)) {
+				//assumes 1 cpu
+				node_on_boundary_id(i) = numNodesGlobal + numBoundaryNodes;
 				++numBoundaryNodes;
 			}
 		}
 
 
-
+		node_on_boundary_id.resize(numNodes);
 		ownedBCNodes.resize(ownedBoundaryNodes);
 		// Build a list of the OWNED global ids...
 		// NTS: will need to switch back to long long
@@ -594,7 +604,7 @@ void Pde::build_maps_and_create_matrices() {
 				ownedGIDs[oidx] = as<int> (global_node_ids[i]);
 				++oidx;
 				if (node_on_boundary(i)) {
-					ownedGIDs[ownedNodes+obidx] = as<int> (numNodesGlobal + obidx);
+					ownedGIDs[ownedNodes+obidx] = as<int> (node_on_boundary_id(i));
 					ownedBCNodes[obidx] = oidx;
 					++obidx;
 				}
@@ -622,7 +632,7 @@ void Pde::build_maps_and_create_matrices() {
 		for (int i = 0; i < numNodes; ++i) {
 			overlappedGIDs[i] = as<int> (global_node_ids[i]);
 			if (node_on_boundary(i)) {
-				overlappedGIDs[i+numNodes] = as<int> (numNodesGlobal + iBC);
+				overlappedGIDs[iBC+numNodes] = as<int> (node_on_boundary_id(i));
 				BCNodes[iBC] = i;
 				++iBC;
 			}
@@ -713,7 +723,7 @@ void Pde::build_maps_and_create_matrices() {
 				const int ielem = boundary_face_to_elem(i);
 				const int sideNode = cellType.getNodeMap(2,iface,iface_point);
 				const int local_index_bp = elem_to_node(ielem,sideNode);
-				Tpetra::global_size_t global_index_bcp = as<Tpetra::global_size_t> (global_node_ids[local_index_bp]) + numNodesGlobal;
+				Tpetra::global_size_t global_index_bcp = as<Tpetra::global_size_t> (node_on_boundary_id(local_index_bp));
 				int global_index_bcp_int = as<int> (global_index_bcp);
 				Teuchos::ArrayView<int> global_index_bcp_AV = Teuchos::arrayView (&global_index_bcp_int, 1);
 				for (int cellpt = 0; cellpt < numFieldsG; cellpt++) {
@@ -843,6 +853,14 @@ void Pde::make_LHS_and_RHS () {
 //		zero_out_rows_and_columns(LHS);
 //		zero_out_rows_and_columns(RHS);
 //	}
+
+	const int numNodes = node_coord.dimension(0);
+	for (int i = 0; i < numNodes; ++i) {
+		std::cout << "i = "<<i<<": (" << node_coord(i, 0) << "," << node_coord(i, 1) << "," << node_coord(i, 2) << ")" <<std::endl;
+	}
+	LHS->print(std::cout);
+
+	Tpetra::MatrixMarket::Writer<sparse_matrix_type>::writeSparse (std::cout, LHS, true);
 
 }
 
@@ -1106,8 +1124,9 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 		// Now we know the actual workset size and can allocate the array
 		// for the cell nodes.
 		worksetSize = worksetEnd - worksetBegin;
-		FieldContainer<ST> cellWorkset (worksetSize, numNodesPerFace, spaceDim);
+		FieldContainer<ST> cellWorkset (worksetSize, numFieldsG, spaceDim);
 		FieldContainer<ST> worksetRefCubPoints (worksetSize, numCubPoints, spaceDim);
+		FieldContainer<ST> worksetHGBValues        (worksetSize, numFieldsG, numCubPoints);
 
 
 		// array to contain boundary normals (=0 if not on boundary)
@@ -1125,15 +1144,20 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 					cellWorkset(faceCounter, node, j) = node_coord(node_num, j);
 				}
 			}
-			FieldContainer<ST> tmp_worksetRefCubPoints (1, numCubPoints, spaceDim);
+			FieldContainer<ST> tmp_worksetRefCubPoints (numCubPoints, spaceDim);
 
 			IntrepidCTools::mapToReferenceSubcell(tmp_worksetRefCubPoints,
 							facePoints,
 							2, iface, cellType);
+			HGradBasis->getValues(HGBFaceValues, tmp_worksetRefCubPoints, OPERATOR_VALUE);
+
 
 			for (int i = 0; i < numCubPoints; ++i) {
+				for (int j = 0; j < numFieldsG; ++j) {
+					worksetHGBValues(faceCounter,j,i) = HGBFaceValues(j,i);
+				}
 				for (int j = 0; j < spaceDim; ++j) {
-					worksetRefCubPoints(faceCounter,i,j) = tmp_worksetRefCubPoints(1,i,j);
+					worksetRefCubPoints(faceCounter,i,j) = tmp_worksetRefCubPoints(i,j);
 				}
 			}
 			++faceCounter;
@@ -1150,7 +1174,7 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 
 		// Containers for basis values transformed to workset cells and
 		// them multiplied by cubature weights
-		FieldContainer<ST> worksetHGBValues        (worksetSize, numFieldsG, numCubPoints);
+
 		FieldContainer<ST> worksetHGBValuesWeighted(worksetSize, numFieldsG, numCubPoints);
 		FieldContainer<ST> worksetFaceValues        (worksetSize, numFieldsFace, numCubPoints);
 
@@ -1176,16 +1200,16 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 		/**********************************************************************************/
 
 
-		//Transform cell basis values to physical frame:
-		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
-				HGBFaceValues);
+//		//Transform cell basis values to physical frame:
+//		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetHGBValues, // clones basis values (u)
+//				HGBFaceValues);
 		//Transform face basis values to physical frame:
 		IntrepidFSTools::HGRADtransformVALUE<ST> (worksetFaceValues, // clones basis values (mu)
 				faceValues);
 		// Compute integration measure for workset cells:
 		IntrepidFSTools::computeCellMeasure<ST> (worksetCubWeights, // Det(DF)*w = J*w
 				worksetJacobDet,
-				cubWeights);
+				faceWeights);
 		// Multiply transformed (workset) values with weighted measure
 		IntrepidFSTools::multiplyMeasure<ST> (worksetHGBValuesWeighted, // (u)*w
 				worksetCubWeights,
@@ -1218,7 +1242,7 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 					const int sideNode = cellType.getNodeMap(2,iface,face_pt);
 					const LO local_face_pt_id = elem_to_node(ielem,sideNode);
 					GO global_face_pt_id =
-							as<int> (global_node_ids[local_face_pt_id]) + numNodesGlobal;
+							as<int> (node_on_boundary_id(local_face_pt_id));
 					ArrayView<GO> global_face_pt_AV = arrayView<GO> (&global_face_pt_id, 1);
 					// "CELL EQUATION" loop for the workset cell: cellRow is
 					// relative to the cell DoF numbering.
@@ -1228,9 +1252,9 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 
 						ArrayView<GO> global_cell_pt_AV = arrayView<GO> (&global_cell_pt_id, 1);
 						ST operatorMatrixContributionLHS =
-								omega*worksetWeakBC (worksetCellOrdinal, cell_pt, face_pt);
+								omega*worksetWeakBC (worksetCellOrdinal, face_pt, cell_pt);
 						ST operatorMatrixContributionRHS =
-								(1.0-omega)*worksetWeakBC (worksetCellOrdinal, cell_pt, face_pt);
+								(1.0-omega)*worksetWeakBC (worksetCellOrdinal, face_pt, cell_pt);
 						ST operatorMatrixContributionRHS_neg = -operatorMatrixContributionRHS;
 						oLHS->sumIntoGlobalValues (global_cell_pt_id, global_face_pt_AV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
@@ -1601,7 +1625,7 @@ void Pde::create_vtk_grid() {
 	vtk_boundary->SetPoints(boundary_Pts);
 	vtk_boundary->GetPointData()->SetScalars(outflow_scalar);
 	const int num_nodes_per_face = faceType.getNodeCount();
-	for (int i = 0; i < num_nodes_per_face; ++i) {
+	for (int i = 0; i < num_faces; ++i) {
 		vtkSmartPointer<vtkQuad> newQuad = vtkSmartPointer<vtkQuad>::New();
 		newQuad->GetPointIds()-> SetNumberOfIds(num_nodes_per_face);
 		for (int j = 0; j < num_nodes_per_face; ++j) {
@@ -1621,83 +1645,83 @@ void Pde::create_stk_grid() {
 	// 3-D meshes only
 	int spaceDim = 3;
 
-	// initialize io
-	Ioss::Init::Initializer io;
+//	// initialize io
+//	Ioss::Init::Initializer io;
+//
+//	// define meta data
+//	stk::mesh::fem::FEMMetaData femMetaData(spaceDim);
+//	stk::mesh::MetaData &metaData = stk::mesh::fem::FEMMetaData::get_meta_data(femMetaData);
+//
+//	// read in mesh from file
+//	stk::io::create_input_mesh("exodusii","test.s",MPI_COMM_WORLD,femMetaData,meshData);
+//
+//	// commit meta data
+//	femMetaData.commit();
+//
+//	// populate mesh entities (nodes, elements, etc.)
+//	stk::mesh::BulkData  bulkData(metaData,MPI_COMM_WORLD);
+//	stk::io::populate_bulk_data(bulkData, meshData);
 
-	// define meta data
-	stk::mesh::fem::FEMMetaData femMetaData(spaceDim);
-	stk::mesh::MetaData &metaData = stk::mesh::fem::FEMMetaData::get_meta_data(femMetaData);
-
-	// read in mesh from file
-	stk::io::create_input_mesh("exodusii","test.s",MPI_COMM_WORLD,femMetaData,meshData);
-
-	// commit meta data
-	femMetaData.commit();
-
-	// populate mesh entities (nodes, elements, etc.)
-	stk::mesh::BulkData  bulkData(metaData,MPI_COMM_WORLD);
-	stk::io::populate_bulk_data(bulkData, meshData);
-
-	/*  Not necessary for Poisson problem
-	   // create adjacent entities
-	     stk::mesh::PartVector empty_add_parts;
-	     stk::mesh::create_adjacent_entities(bulkData, empty_add_parts);
-	 */
-
-	// get entity ranks
-	const stk::mesh::EntityRank elementRank = femMetaData.element_rank();
-	const stk::mesh::EntityRank nodeRank    = femMetaData.node_rank();
-
-	// get nodes
-	std::vector<stk::mesh::Entity*> nodes;
-	stk::mesh::get_entities(bulkData, nodeRank, nodes);
-	int numNodes = nodes.size();
-
-	// get elems
-	std::vector<stk::mesh::Entity*> elems;
-	stk::mesh::get_entities(bulkData, elementRank, elems);
-	int numElems = elems.size();
-
-	if (MyPID == 0) {
-		std::cout << " Number of Elements: " << numElems << " \n";
-		std::cout << "    Number of Nodes: " << numNodes << " \n\n";
-	}
-
-	// get coordinates field
-	stk::mesh::Field<double, stk::mesh::Cartesian> *coords =
-			femMetaData.get_field<stk::mesh::Field<double, stk::mesh::Cartesian> >("coordinates");
-
-	// get buckets containing entities of node rank
-	const std::vector<stk::mesh::Bucket*> & nodeBuckets = bulkData.buckets( nodeRank );
-	std::vector<stk::mesh::Entity*> bcNodes;
-
-	// loop over all mesh parts
-	const stk::mesh::PartVector & all_parts = femMetaData.get_parts();
-	for (stk::mesh::PartVector::const_iterator i  = all_parts.begin();
-			i != all_parts.end(); ++i) {
-
-		stk::mesh::Part & part = **i ;
-
-		// if part only contains nodes, then it is a node set
-		//   ! this assumes that the only node set defined is the set
-		//   ! of boundary nodes
-		if (part.primary_entity_rank() == nodeRank) {
-			stk::mesh::Selector bcNodeSelector(part);
-			stk::mesh::get_selected_entities(bcNodeSelector, nodeBuckets, bcNodes);
-		}
-
-	} // end loop over mesh parts
-
-	// if no boundary node set was found give a warning
-	if (bcNodes.size() == 0) {
-		if (MyPID == 0) {
-			std::cout << "\n     Warning! - No boundary node set found. \n";
-			std::cout << "  Boundary conditions will not be applied correctly. \n\n";
-		}
-	}
-
-	if(MyPID==0) {std::cout << "Read mesh                                   "
-		<< Time.ElapsedTime() << " sec \n"; Time.ResetStartTime();}
+//	/*  Not necessary for Poisson problem
+//	   // create adjacent entities
+//	     stk::mesh::PartVector empty_add_parts;
+//	     stk::mesh::create_adjacent_entities(bulkData, empty_add_parts);
+//	 */
+//
+//	// get entity ranks
+//	const stk::mesh::EntityRank elementRank = femMetaData.element_rank();
+//	const stk::mesh::EntityRank nodeRank    = femMetaData.node_rank();
+//
+//	// get nodes
+//	std::vector<stk::mesh::Entity*> nodes;
+//	stk::mesh::get_entities(bulkData, nodeRank, nodes);
+//	int numNodes = nodes.size();
+//
+//	// get elems
+//	std::vector<stk::mesh::Entity*> elems;
+//	stk::mesh::get_entities(bulkData, elementRank, elems);
+//	int numElems = elems.size();
+//
+//	if (MyPID == 0) {
+//		std::cout << " Number of Elements: " << numElems << " \n";
+//		std::cout << "    Number of Nodes: " << numNodes << " \n\n";
+//	}
+//
+//	// get coordinates field
+//	stk::mesh::Field<double, stk::mesh::Cartesian> *coords =
+//			femMetaData.get_field<stk::mesh::Field<double, stk::mesh::Cartesian> >("coordinates");
+//
+//	// get buckets containing entities of node rank
+//	const std::vector<stk::mesh::Bucket*> & nodeBuckets = bulkData.buckets( nodeRank );
+//	std::vector<stk::mesh::Entity*> bcNodes;
+//
+//	// loop over all mesh parts
+//	const stk::mesh::PartVector & all_parts = femMetaData.get_parts();
+//	for (stk::mesh::PartVector::const_iterator i  = all_parts.begin();
+//			i != all_parts.end(); ++i) {
+//
+//		stk::mesh::Part & part = **i ;
+//
+//		// if part only contains nodes, then it is a node set
+//		//   ! this assumes that the only node set defined is the set
+//		//   ! of boundary nodes
+//		if (part.primary_entity_rank() == nodeRank) {
+//			stk::mesh::Selector bcNodeSelector(part);
+//			stk::mesh::get_selected_entities(bcNodeSelector, nodeBuckets, bcNodes);
+//		}
+//
+//	} // end loop over mesh parts
+//
+//	// if no boundary node set was found give a warning
+//	if (bcNodes.size() == 0) {
+//		if (MyPID == 0) {
+//			std::cout << "\n     Warning! - No boundary node set found. \n";
+//			std::cout << "  Boundary conditions will not be applied correctly. \n\n";
+//		}
+//	}
+//
+//	if(MyPID==0) {std::cout << "Read mesh                                   "
+//		<< Time.ElapsedTime() << " sec \n"; Time.ResetStartTime();}
 }
 
 

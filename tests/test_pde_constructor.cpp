@@ -24,10 +24,14 @@
 
 #include "Pde_bd.h"
 
+
+
 int main(int argc, char **argv) {
+	using boost::format;
+	using std::string;
+
 	Mpi::init(argc,argv);
-	Pde p(0.1,0.1);
-	Io::write_grid("test",p.get_grid());
+	const double dt = 0.001;
+	const double dx = 0.1;
+	Pde p(dt,dx);
 }
-
-
