@@ -45,7 +45,7 @@ Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 
 
 	std::string meshInput;
-	meshInput = makeMeshInput(1.0/dx, 1, 1);
+	meshInput = makeMeshInput(1.0/dx, 1.0/dx, 1.0/dx);
 
 	setup_pamgen_mesh(meshInput);
 
@@ -62,21 +62,23 @@ void Pde::add_particle(const ST x, const ST y, const ST z) {
 	typedef Teuchos::ScalarTraits<MT> STM;
 
 	const int numNodes = node_coord.dimension(0);
+	int closest_node = 0;
+	double closest_distance = 10000.0;
 	for (int i=0; i<numNodes; i++) {
 		if (node_is_owned[i]) {
 			const ST dx = node_coord(i,0) - x;
 			const ST dy = node_coord(i,1) - y;
 			const ST dz = node_coord(i,2) - z;
-			if ((dx < dirac_width) && (dy < dirac_width) && (dz < dirac_width)) {
+			if ((dx < closest_distance) && (dy < closest_distance) && (dz < closest_distance)) {
 				const MT r = STM::squareroot(dx*dx + dy*dy + dz*dz);
-				if (r < dirac_width) {
-					X->sumIntoLocalValue(i,
-							(1.0 - r/dirac_width)/(2.0*PI*PI*dirac_width)
-					);
+				if (r < closest_distance) {
+					closest_distance = r;
+					closest_node = i;
 				} // if node within particle radius
 			} // if node within the square
 		} // if node is owned by this process
 	} // loop through all nodes
+	X->sumIntoLocalValue(closest_node, 1.0/(dirac_width*dirac_width*dirac_width));
 }
 
 struct fecomp{
@@ -400,15 +402,35 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 	long long numDFinSet;
 	int numBndyFaces=0;
 	im_ex_get_side_set_ids_l(id,sideSetIds);
-	for (int i=0; i < numSideSets; ++i) {
-		im_ex_get_side_set_param_l (id,sideSetIds[i], &numSidesInSet[i], &numDFinSet);
-		numBndyFaces += numSidesInSet[i];
-	}
-
-	boundary_face_to_elem.resize(numBndyFaces);
-	boundary_face_to_ordinal.resize(numBndyFaces);
 
 	int i_boundary_face = 0;
+	for (int i = 0; i < numSideSets; ++i) {
+		im_ex_get_side_set_param_l (id,sideSetIds[i], &numSidesInSet[i], &numDFinSet);
+		if (numSidesInSet[i] > 0) {
+			long long * sideSetElemList = new long long [numSidesInSet[i]];
+			long long * sideSetSideList = new long long [numSidesInSet[i]];
+			im_ex_get_side_set_l (id, sideSetIds[i], sideSetElemList, sideSetSideList);
+
+			for (int j = 0; j < numSidesInSet[i]; ++j) {
+				const int iface = sideSetSideList[j]-1;
+				const int ielem = sideSetElemList[j]-1;
+				bool on_x_equal_one = true;
+				for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
+					const int sideNode = cellType.getNodeMap(2,iface,ifacenode);
+					const int local_nodeid = elem_to_node(ielem,sideNode);
+					on_x_equal_one &= node_coord(local_nodeid,0)==0.0;
+				}
+				if (on_x_equal_one) {
+					i_boundary_face++;
+				}
+			}
+		}
+	}
+
+	boundary_face_to_elem.resize(i_boundary_face);
+	boundary_face_to_ordinal.resize(i_boundary_face);
+
+	i_boundary_face = 0;
 	for (int i = 0; i < numSideSets; ++i) {
 		if (numSidesInSet[i] > 0){
 			long long * sideSetElemList = new long long [numSidesInSet[i]];
@@ -423,7 +445,7 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 				for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
 					const int sideNode = cellType.getNodeMap(2,iface,ifacenode);
 					const int local_nodeid = elem_to_node(ielem,sideNode);
-					on_x_equal_one &= node_coord(local_nodeid,0)==1.0;
+					on_x_equal_one &= node_coord(local_nodeid,0)==0.0;
 				}
 
 				if (on_x_equal_one) {
@@ -612,7 +634,11 @@ void Pde::build_maps_and_create_matrices() {
 		}
 
 		// extend list to include boundary condition nodes
-
+		std::cout << "owned GIDs = ";
+		for (int i = 0; i < ownedGIDs.size(); ++i) {
+			std::cout << ownedGIDs[i] << ",";
+		}
+		std::cout << std::endl;
 
 		globalMapG = rcp (new map_type (-1, ownedGIDs (), 0, comm, node));
 	}
@@ -637,7 +663,11 @@ void Pde::build_maps_and_create_matrices() {
 				++iBC;
 			}
 		}
-
+		std::cout << "overlapped GIDs = ";
+		for (int i = 0; i < overlappedGIDs.size(); ++i) {
+			std::cout << overlappedGIDs[i] << ",";
+		}
+		std::cout << std::endl;
 		//Generate overlapped Map for nodes.
 		overlappedMapG = rcp (new map_type (-1, overlappedGIDs (), 0, comm, node));
 
@@ -774,7 +804,7 @@ void Pde::integrate(const ST requested_dt) {
 
 	const int iterations = int(requested_dt/dt + 0.5);
 	const double actual_dt = iterations*requested_dt;
-	std::cout << "integrating for "<<actual_dt<<" seconds." << std::endl;
+	std::cout << "integrating for "<<actual_dt<<" seconds (" << iterations << " iterations)" << std::endl;
 	for (int i = 0; i < iterations; ++i) {
 		/*
 		 * Solve FEM system
@@ -787,6 +817,8 @@ void Pde::integrate(const ST requested_dt) {
 void Pde::make_LHS_and_RHS () {
 
 	using Teuchos::TimeMonitor;
+	using Teuchos::ArrayView;
+
 	typedef Teuchos::ScalarTraits<ST> STS;
 	//
 	// Overlapped distribution objects:
@@ -798,13 +830,34 @@ void Pde::make_LHS_and_RHS () {
 			rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
 	oRHS->setAllToScalar (STS::zero ());
 
+//	const int globalRow = 1;
+//		const int globalCol = 0;
+//		ArrayView<const ST> testRHS;
+//		ArrayView<const int> constglobalColAV;
+//		oRHS->getLocalRowView(globalRow,constglobalColAV,testRHS);
+//		ArrayView<const ST> testLHS;
+//		oLHS->getLocalRowView(globalRow,constglobalColAV,testLHS);
+//		std::cout << "r = " << globalRow << " c = " << globalCol<<
+//				" cum LHS after = "<< testLHS[globalCol] <<
+//				" cum RHS after = "<< testRHS[globalCol] <<
+//				std::endl;
+
 	RCP<Teuchos::Time> timerAssembleBoundaryIntegral =
 			TimeMonitor::getNewTimer ("Assemble Boundary Integral");
 	{
 		TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleBoundaryIntegral);
 
-		boundary_integrals(oLHS,oRHS);
+		boundary_integrals2(oLHS,oRHS);
 	}
+
+
+
+//		oRHS->getLocalRowView(globalRow,constglobalColAV,testRHS);
+//		oLHS->getLocalRowView(globalRow,constglobalColAV,testLHS);
+//		std::cout << "r = " << globalRow << " c = " << globalCol<<
+//				" cum LHS after = "<< testLHS[globalCol] <<
+//				" cum RHS after = "<< testRHS[globalCol] <<
+//				std::endl;
 
 	RCP<Teuchos::Time> timerAssembleVolumeIntegral =
 			TimeMonitor::getNewTimer ("Assemble Volume Integral");
@@ -854,13 +907,15 @@ void Pde::make_LHS_and_RHS () {
 //		zero_out_rows_and_columns(RHS);
 //	}
 
-	const int numNodes = node_coord.dimension(0);
-	for (int i = 0; i < numNodes; ++i) {
-		std::cout << "i = "<<i<<": (" << node_coord(i, 0) << "," << node_coord(i, 1) << "," << node_coord(i, 2) << ")" <<std::endl;
-	}
-	LHS->print(std::cout);
-
-	Tpetra::MatrixMarket::Writer<sparse_matrix_type>::writeSparse (std::cout, LHS, true);
+//	const int numNodes = node_coord.dimension(0);
+//	for (int i = 0; i < numNodes; ++i) {
+//		std::cout << "i = "<<i<<": (" << node_coord(i, 0) << "," << node_coord(i, 1) << "," << node_coord(i, 2) << ")" <<std::endl;
+//	}
+//
+//	oRHS->print(std::cout);
+//		Tpetra::MatrixMarket::Writer<sparse_matrix_type>::writeSparse (std::cout, oRHS, true);
+	RHS->print(std::cout);
+	Tpetra::MatrixMarket::Writer<sparse_matrix_type>::writeSparse (std::cout, RHS, true);
 
 }
 
@@ -1021,6 +1076,9 @@ void Pde::solve() {
 	RCP<vector_type> rhsDir =
 			rcp (new vector_type (globalMapG, true));
 	RHS->apply(*X.getConst(),*rhsDir);
+//	std::cout << "rhs vector = " << std::endl;
+//	rhsDir->print(std::cout);
+//	Tpetra::MatrixMarket::Writer<vector_type>::writeDense (std::cout, rhsDir);
 	TrilinosRD::solveWithBelos<ST, multivector_type, operator_type>(
 			converged, numItersPerformed, tol, maxNumIters,
 			X, LHS,
@@ -1064,6 +1122,8 @@ std::string Pde::makeMeshInput (const int nx, const int ny, const int nz) {
   return os.str ();
 }
 
+
+
 vtkUnstructuredGrid* Pde::get_grid() {
 	return vtk_grid;
 }
@@ -1095,7 +1155,7 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 	/**********************************************************************************/
 	/******************** DEFINE WORKSETS AND LOOP OVER THEM **************************/
 	/**********************************************************************************/
-
+	if (numBoundaryFaces == 0) return;
 	// Define desired workset size and count how many worksets there are
 	// on this processor's mesh block
 	int desiredWorksetSize = numBoundaryFaces; // change to desired workset size!
@@ -1256,6 +1316,9 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 						ST operatorMatrixContributionRHS =
 								(1.0-omega)*worksetWeakBC (worksetCellOrdinal, face_pt, cell_pt);
 						ST operatorMatrixContributionRHS_neg = -operatorMatrixContributionRHS;
+
+
+
 						oLHS->sumIntoGlobalValues (global_cell_pt_id, global_face_pt_AV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
 						oLHS->sumIntoGlobalValues (global_face_pt_id, global_cell_pt_AV,
@@ -1264,6 +1327,53 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 								arrayView<ST> (&operatorMatrixContributionRHS_neg, 1));
 						oRHS->sumIntoGlobalValues (global_face_pt_id, global_cell_pt_AV,
 								arrayView<ST> (&operatorMatrixContributionRHS, 1));
+
+//						if (1) {
+////						if (((global_cell_pt_id==0)||(local_face_pt_id==0))&&((global_cell_pt_id==1)||(local_face_pt_id==1))) {
+//							ArrayView<const ST> testRHS;
+//							ArrayView<const int> constglobalColAV;
+//							oRHS->getLocalRowView(global_face_pt_id,constglobalColAV,testRHS);
+//							ST testRHSs = -1;
+//							for (int i = 0; i < testRHS.size(); ++i) {
+//								if (constglobalColAV[i]==global_cell_pt_id) {
+//									testRHSs = testRHS[i];
+//								}
+//							}
+//							ArrayView<const ST> testLHS;
+//							oLHS->getLocalRowView(global_face_pt_id,constglobalColAV,testLHS);
+//							ST testLHSs = -1;
+//							for (int i = 0; i < testLHS.size(); ++i) {
+//								if (constglobalColAV[i]==global_cell_pt_id) {
+//									testLHSs = testLHS[i];
+//								}
+//							}
+//							ArrayView<const ST> testRHS_trans;
+//							oRHS->getLocalRowView(global_cell_pt_id,constglobalColAV,testRHS_trans);
+//							ST testRHSs_trans = -1;
+//							for (int i = 0; i < testRHS_trans.size(); ++i) {
+//								if (constglobalColAV[i]==global_face_pt_id) {
+//									testRHSs_trans = testRHS_trans[i];
+//								}
+//							}
+//							ArrayView<const ST> testLHS_trans;
+//							oLHS->getLocalRowView(global_cell_pt_id,constglobalColAV,testLHS_trans);
+//							ST testLHSs_trans = -1;
+//							for (int i = 0; i < testLHS_trans.size(); ++i) {
+//								if (constglobalColAV[i]==global_face_pt_id) {
+//									testLHSs_trans = testLHS_trans[i];
+//								}
+//							}
+//							std::cout << "cp = " << global_cell_pt_id << " fp = " << global_face_pt_id<<
+//									"face no = "<<worksetCellOrdinal<<
+//									" B = " << worksetWeakBC(worksetCellOrdinal,face_pt,cell_pt) <<
+//									" LHS = " << operatorMatrixContributionLHS <<
+//									" RHS = " << operatorMatrixContributionRHS <<
+//									" cum LHS = "<< testLHSs <<
+//									" cum RHS = "<< testRHSs <<
+//									" cum LHS' = "<< testLHSs_trans <<
+//									" cum RHS' = "<< testRHSs_trans <<
+//									std::endl;
+//						}
 					}// *** cell col loop ***
 				}// *** cell row loop ***
 			}// *** workset cell loop **
@@ -1295,6 +1405,19 @@ void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 	/**********************************************************************************/
 
 	LOG(2,"Building discretization matricies");
+
+//	const int globalRow = 1;
+//	const int globalCol = 0;
+//	ArrayView<const ST> testRHS;
+//	ArrayView<const int> constglobalColAV;
+//	oRHS->getLocalRowView(globalRow,constglobalColAV,testRHS);
+//	ArrayView<const ST> testLHS;
+//	oLHS->getLocalRowView(globalRow,constglobalColAV,testLHS);
+//	std::cout << "r = " << globalRow << " c = " << globalCol<<
+//			" cum LHS after = "<< testLHS[globalCol] <<
+//			" cum RHS after = "<< testRHS[globalCol] <<
+//			std::endl;
+
 
 	// Define desired workset size and count how many worksets there are
 	// on this processor's mesh block
@@ -1549,10 +1672,38 @@ void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
 								- (1.0-omega)*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
 
+//						if (((globalRow==0)||(globalCol==0))&&((globalRow==1)||(globalCol==1))) {
+//							ArrayView<const ST> testRHS;
+//							ArrayView<const int> constglobalColAV = arrayView<const int> (&globalCol, 1);
+//							oRHS->getLocalRowView(globalRow,constglobalColAV,testRHS);
+//							ArrayView<const ST> testLHS;
+//							oLHS->getLocalRowView(globalRow,constglobalColAV,testLHS);
+//							std::cout <<
+//									" cum LHS before = "<< testLHS[globalCol] <<
+//									" cum RHS before = "<< testRHS[globalCol] <<
+//									std::endl;
+//						}
+
 						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
 						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionRHS, 1));
+
+//						if (((globalRow==0)||(globalCol==0))&&((globalRow==1)||(globalCol==1))) {
+//							ArrayView<const ST> testRHS;
+//							ArrayView<const int> constglobalColAV = arrayView<const int> (&globalCol, 1);
+//							oRHS->getLocalRowView(globalRow,constglobalColAV,testRHS);
+//							ArrayView<const ST> testLHS;
+//							oLHS->getLocalRowView(globalRow,constglobalColAV,testLHS);
+//							std::cout << "r = " << globalRow << " c = " << globalCol<< "cell no = "<<worksetCellOrdinal<<
+//									" M = " << worksetMassMatrix(worksetCellOrdinal,cellRow,cellCol) <<
+//									" K = " << worksetStiffMatrix(worksetCellOrdinal,cellRow,cellCol) <<
+//									" LHS = " << operatorMatrixContributionLHS <<
+//									" RHS = " << operatorMatrixContributionRHS <<
+//									" cum LHS after = "<< testLHS[globalCol] <<
+//									" cum RHS after = "<< testRHS[globalCol] <<
+//									std::endl;
+//						}
 					}// *** cell col loop ***
 				}// *** cell row loop ***
 			}// *** workset cell loop **
@@ -1600,11 +1751,14 @@ void Pde::create_vtk_grid() {
 
 	}
 
+
 	/*
 	 * setup boundary points
 	 */
 	vtkSmartPointer<vtkPoints> boundary_Pts = vtkSmartPointer<vtkPoints>::New();
 	const int num_overlapped_boundary_points = BCNodes.size();
+	if (num_overlapped_boundary_points == 0) return;
+
 	for (int i = 0; i < num_overlapped_boundary_points; i++) {
 		boundary_Pts->InsertNextPoint(node_coord(BCNodes[i],0),node_coord(BCNodes[i],1),node_coord(BCNodes[i],2));
 	}
@@ -1626,16 +1780,23 @@ void Pde::create_vtk_grid() {
 	vtk_boundary->GetPointData()->SetScalars(outflow_scalar);
 	const int num_nodes_per_face = faceType.getNodeCount();
 	for (int i = 0; i < num_faces; ++i) {
+		const int iface = boundary_face_to_ordinal(i);
+		const int ielem = boundary_face_to_elem(i);
 		vtkSmartPointer<vtkQuad> newQuad = vtkSmartPointer<vtkQuad>::New();
 		newQuad->GetPointIds()-> SetNumberOfIds(num_nodes_per_face);
 		for (int j = 0; j < num_nodes_per_face; ++j) {
-			newQuad->GetPointIds()-> SetId(j,
-					elem_to_node(boundary_face_to_elem(i),boundary_face_to_ordinal(i)));
+			const int sideNode = cellType.getNodeMap(2,iface,j);
+			const int local_index_bp = elem_to_node(ielem,sideNode);
+			const int local_index_bcnodes = node_on_boundary_id(local_index_bp)-numNodesGlobal;
+			newQuad->GetPointIds()-> SetId(j,local_index_bcnodes);
+			if (i==0) std::cout << "setting node id = "<<local_index_bcnodes<<std::endl;
 		}
 		vtk_boundary->InsertNextCell(newQuad->GetCellType(),newQuad->GetPointIds());
 
 	}
 }
+
+
 
 void Pde::create_stk_grid() {
 	/**********************************************************************************/
@@ -1724,5 +1885,190 @@ void Pde::create_stk_grid() {
 //		<< Time.ElapsedTime() << " sec \n"; Time.ResetStartTime();}
 }
 
+void Pde::boundary_integrals2(RCP<sparse_matrix_type> oLHS,
+		RCP<sparse_matrix_type> oRHS) {
+	using namespace Intrepid;
+	using Teuchos::ArrayView;
+	using Teuchos::arrayView;
+	using Teuchos::as;
+
+	using Teuchos::TimeMonitor;
+	typedef Intrepid::FunctionSpaceTools IntrepidFSTools;
+	typedef Intrepid::RealSpaceTools<ST> IntrepidRSTools;
+	typedef Intrepid::CellTools<ST>      IntrepidCTools;
+
+	const int numBoundaryFaces = boundary_face_to_elem.dimension(0);
+	const int numNodesPerFace = faceType.getNodeCount();
+	const int numFieldsG = HGradBasis->getCardinality();
+	const int numFieldsFace = faceBasis->getCardinality();
+	const int numCubPoints = faceCubature->getNumPoints();
+	const int cubDim = cubature->getDimension();
 
 
+	/**********************************************************************************/
+	/******************** DEFINE WORKSETS AND LOOP OVER THEM **************************/
+	/**********************************************************************************/
+	if (numBoundaryFaces == 0) return;
+	// Define desired workset size and count how many worksets there are
+	// on this processor's mesh block
+	int desiredWorksetSize = numBoundaryFaces; // change to desired workset size!
+	//int desiredWorksetSize = 100;    // change to desired workset size!
+	int numWorksets        = numBoundaryFaces/desiredWorksetSize;
+
+	// When numElems is not divisible by desiredWorksetSize, increase
+	// workset count by 1
+	if (numWorksets*desiredWorksetSize < numBoundaryFaces) {
+		numWorksets += 1;
+	}
+
+	LOG(2,"Desired workset size:             " << desiredWorksetSize << std::endl
+			<< "Number of worksets (per process): " << numWorksets);
+
+	for (int workset = 0; workset < numWorksets; ++workset) {
+		// Compute cell numbers where the workset starts and ends
+		int worksetSize  = 0;
+		int worksetBegin = (workset + 0)*desiredWorksetSize;
+		int worksetEnd   = (workset + 1)*desiredWorksetSize;
+
+		// When numElems is not divisible by desiredWorksetSize, the last
+		// workset ends at numElems.
+		worksetEnd = (worksetEnd <= numBoundaryFaces) ? worksetEnd : numBoundaryFaces;
+
+		// Now we know the actual workset size and can allocate the array
+		// for the cell nodes.
+		worksetSize = worksetEnd - worksetBegin;
+		FieldContainer<ST> cellWorkset (1, numFieldsG, spaceDim);
+		FieldContainer<ST> worksetCubWeights(1, numCubPoints);
+
+		FieldContainer<ST> worksetRefCubPoints (numCubPoints, spaceDim);
+		// Copy coordinates and face cubature points (in the ref cell domain)
+		// into cell workset
+		FieldContainer<ST> worksetJacobian  (1, numCubPoints, spaceDim, spaceDim);
+
+		FieldContainer<ST> worksetFaceValuesWeighted(1, numFieldsFace, numCubPoints);
+		FieldContainer<ST> worksetFaceValues        (1, numFieldsFace, numCubPoints);
+
+		// Containers for workset contributions to the boundary integral
+		FieldContainer<ST> worksetWeakBC (1, numFieldsFace, numFieldsFace);
+
+		for (int face = worksetBegin; face < worksetEnd; ++face) {
+			const int ielem = boundary_face_to_elem(face);
+			const int iface = boundary_face_to_ordinal(face);
+			for (int node = 0; node < numFieldsG; ++node) {
+				const int node_num = elem_to_node(ielem, node);
+				for (int j = 0; j < spaceDim; ++j) {
+					cellWorkset(0, node, j) = node_coord(node_num, j);
+				}
+			}
+
+
+			IntrepidCTools::mapToReferenceSubcell(worksetRefCubPoints,
+					facePoints,
+					2, iface, cellType);
+
+
+			IntrepidCTools::setJacobian(worksetJacobian, worksetRefCubPoints,
+							cellWorkset, cellType);
+
+			IntrepidFSTools::computeFaceMeasure<ST> (worksetCubWeights, // Det(DF)*w = J*w
+							worksetJacobian,
+							faceWeights,
+							iface,
+							cellType);
+
+			IntrepidFSTools::HGRADtransformVALUE<ST> (worksetFaceValues, // clones basis values (mu)
+					faceValues);
+
+			IntrepidFSTools::multiplyMeasure<ST> (worksetFaceValuesWeighted, // (u)*w
+					worksetCubWeights,
+					worksetFaceValues);
+
+			// Integrate to compute workset contribution to global matrix:
+			IntrepidFSTools::integrate<ST> (worksetWeakBC, // (u)*(u)*w
+					worksetFaceValues,
+					worksetFaceValuesWeighted,
+					COMP_BLAS);
+
+
+			for (int face_pt = 0; face_pt < numFieldsFace; ++face_pt) {
+				const int sideNode = cellType.getNodeMap(2,iface,face_pt);
+				const LO local_face_pt_id = elem_to_node(ielem,sideNode);
+				GO global_face_pt_id =
+						as<int> (node_on_boundary_id(local_face_pt_id));
+				ArrayView<GO> global_face_pt_AV = arrayView<GO> (&global_face_pt_id, 1);
+				// "CELL EQUATION" loop for the workset cell: cellRow is
+				// relative to the cell DoF numbering.
+				for (int cell_pt = 0; cell_pt < numFieldsFace; ++cell_pt) {
+					const int sideNode2 = cellType.getNodeMap(2,iface,cell_pt);
+					const LO local_cell_pt_id = elem_to_node(ielem,sideNode2);
+					GO global_cell_pt_id = as<GO> (global_node_ids[local_cell_pt_id]);
+
+					ArrayView<GO> global_cell_pt_AV = arrayView<GO> (&global_cell_pt_id, 1);
+					ST operatorMatrixContributionLHS =
+							omega*worksetWeakBC (0, face_pt, cell_pt);
+					ST operatorMatrixContributionRHS =
+							(1.0-omega)*worksetWeakBC (0, face_pt, cell_pt);
+					ST operatorMatrixContributionRHS_neg = -operatorMatrixContributionRHS;
+
+
+
+					oLHS->sumIntoGlobalValues (global_cell_pt_id, global_face_pt_AV,
+							arrayView<ST> (&operatorMatrixContributionLHS, 1));
+					oLHS->sumIntoGlobalValues (global_face_pt_id, global_cell_pt_AV,
+							arrayView<ST> (&operatorMatrixContributionLHS, 1));
+					oRHS->sumIntoGlobalValues (global_cell_pt_id, global_face_pt_AV,
+							arrayView<ST> (&operatorMatrixContributionRHS_neg, 1));
+					oRHS->sumIntoGlobalValues (global_face_pt_id, global_cell_pt_AV,
+							arrayView<ST> (&operatorMatrixContributionRHS, 1));
+
+					//						if (1) {
+					////						if (((global_cell_pt_id==0)||(local_face_pt_id==0))&&((global_cell_pt_id==1)||(local_face_pt_id==1))) {
+					//							ArrayView<const ST> testRHS;
+					//							ArrayView<const int> constglobalColAV;
+					//							oRHS->getLocalRowView(global_face_pt_id,constglobalColAV,testRHS);
+					//							ST testRHSs = -1;
+					//							for (int i = 0; i < testRHS.size(); ++i) {
+					//								if (constglobalColAV[i]==global_cell_pt_id) {
+					//									testRHSs = testRHS[i];
+					//								}
+					//							}
+					//							ArrayView<const ST> testLHS;
+					//							oLHS->getLocalRowView(global_face_pt_id,constglobalColAV,testLHS);
+					//							ST testLHSs = -1;
+					//							for (int i = 0; i < testLHS.size(); ++i) {
+					//								if (constglobalColAV[i]==global_cell_pt_id) {
+					//									testLHSs = testLHS[i];
+					//								}
+					//							}
+					//							ArrayView<const ST> testRHS_trans;
+					//							oRHS->getLocalRowView(global_cell_pt_id,constglobalColAV,testRHS_trans);
+					//							ST testRHSs_trans = -1;
+					//							for (int i = 0; i < testRHS_trans.size(); ++i) {
+					//								if (constglobalColAV[i]==global_face_pt_id) {
+					//									testRHSs_trans = testRHS_trans[i];
+					//								}
+					//							}
+					//							ArrayView<const ST> testLHS_trans;
+					//							oLHS->getLocalRowView(global_cell_pt_id,constglobalColAV,testLHS_trans);
+					//							ST testLHSs_trans = -1;
+					//							for (int i = 0; i < testLHS_trans.size(); ++i) {
+					//								if (constglobalColAV[i]==global_face_pt_id) {
+					//									testLHSs_trans = testLHS_trans[i];
+					//								}
+					//							}
+					//							std::cout << "cp = " << global_cell_pt_id << " fp = " << global_face_pt_id<<
+					//									"face no = "<<worksetCellOrdinal<<
+					//									" B = " << worksetWeakBC(worksetCellOrdinal,face_pt,cell_pt) <<
+					//									" LHS = " << operatorMatrixContributionLHS <<
+					//									" RHS = " << operatorMatrixContributionRHS <<
+					//									" cum LHS = "<< testLHSs <<
+					//									" cum RHS = "<< testRHSs <<
+					//									" cum LHS' = "<< testLHSs_trans <<
+					//									" cum RHS' = "<< testRHSs_trans <<
+					//									std::endl;
+					//						}
+				}// *** cell col loop ***
+			}// *** cell row loop ***
+		}// *** workset cell loop **
+	}// *** workset loop ***
+}

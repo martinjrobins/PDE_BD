@@ -199,6 +199,7 @@ private:
 	void build_maps_and_create_matrices();
 	void make_LHS_and_RHS();
 	void boundary_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS);
+	void boundary_integrals2(RCP<sparse_matrix_type> oLHS,RCP<sparse_matrix_type> oRHS);
 	void volume_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS);
 	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 	void solve();

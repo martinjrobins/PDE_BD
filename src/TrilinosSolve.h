@@ -28,7 +28,8 @@
 
 #include "BelosConfigDefs.hpp"
 #include "BelosLinearProblem.hpp"
-#include "BelosPseudoBlockCGSolMgr.hpp"
+#include "BelosSolverFactory.hpp"
+//#include "BelosPseudoBlockCGSolMgr.hpp"
 
 
 namespace TrilinosRD {
@@ -85,11 +86,17 @@ solveWithBelos (bool& converged,
     "Belos::LinearProblem's setProblem() method returned false.  This probably "
     "indicates that there is something wrong with A, X, or B.");
 
-  solver_type solver (problem, belosParams);
-  Belos::ReturnType result = solver.solve ();
+  // Create the GMRES solver.
+  Belos::SolverFactory<ST, MV, OP> factory;
+  RCP<Belos::SolverManager<ST, MV, OP> > solver =
+		  factory.create ("GMRES", belosParams);
+  // Tell the solver what problem you want to solve.
+  solver->setProblem (problem);
+
+  Belos::ReturnType result = solver->solve ();
 
   converged = (result == Belos::Converged);
-  numItersPerformed = solver.getNumIters ();
+  numItersPerformed = solver->getNumIters ();
 }
 
 } // namespace TrilinosRD
