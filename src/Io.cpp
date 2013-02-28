@@ -41,3 +41,31 @@ void Io::write_grid(std::string filename, vtkUnstructuredGrid* grid) {
 	writer->SetFileName(filename.c_str());
 	writer->Write();
 }
+
+void Io::write_points(std::string filename, const std::vector<double>& x,
+		const std::vector<double>& y, const std::vector<double>& z) {
+	/*
+	 * setup points
+	 */
+	vtkSmartPointer<vtkPoints> newPts = vtkSmartPointer<vtkPoints>::New();
+	const int n = x.size();
+	for (int i = 0; i < n; i++) {
+		newPts->InsertNextPoint(x[i],y[i],z[i]);
+	}
+
+	vtkSmartPointer<vtkUnstructuredGrid> vtk_grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
+	vtk_grid->SetPoints(newPts);
+
+	const int my_rank = Mpi::mpiSession->getRank();
+	const int num_procs = Mpi::mpiSession->getNProc();
+	vtkSmartPointer<vtkXMLPUnstructuredGridWriter> writer =
+			vtkSmartPointer<vtkXMLPUnstructuredGridWriter>::New();
+	writer->SetNumberOfPieces(num_procs);
+	writer->SetStartPiece(my_rank);
+	writer->SetEndPiece(my_rank);
+	writer->SetInput(vtk_grid);
+	writer->SetDataModeToBinary();
+	writer->SetFileName(filename.c_str());
+	writer->Write();
+}
+

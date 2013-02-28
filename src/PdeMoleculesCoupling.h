@@ -1,5 +1,5 @@
 /*
- * MoleculesSimple.h
+ * PdeMoleculesCoupling.h
  * 
  * Copyright 2013 Martin Robinson
  *
@@ -18,33 +18,29 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with PDE_BD.  If not, see <http://www.gnu.org/licenses/>.
  *
- *  Created on: 21 Feb 2013
+ *  Created on: 28 Feb 2013
  *      Author: robinsonm
  */
 
-#ifndef MOLECULESSIMPLE_H_
-#define MOLECULESSIMPLE_H_
+#ifndef PDEMOLECULESCOUPLING_H_
+#define PDEMOLECULESCOUPLING_H_
 
-#include <vector>
-#include <trng/config.hpp>
-#include <trng/yarn2.hpp>
+#include "Pde.h"
+#include "MoleculesSimple.h"
+#include <boost/random.hpp>
 
 
-class MoleculesSimple {
+class PdeMoleculesCoupling {
+	typedef boost::mt19937  base_generator_type;
 public:
-	MoleculesSimple();
-	void add_particle(const double x, const double Y, const double z);
-	void remove_particle(const int i);
-	void diffuse(const double dt, const double D);
-	void reflective_boundaries(const double xmin,const double xmax,
-			const double ymin, const double ymax,
-			const double zmin, const double zmax);
-	const std::vector<double>& get_x() {return x;}
-	const std::vector<double>& get_y() {return y;}
-	const std::vector<double>& get_z() {return z;}
+	PdeMoleculesCoupling() {
+		R.seed(time(NULL));
+	}
+	void generate_new_molecules(MoleculesSimple& mols, Pde& pde, const double dt, const double dA, const double D);
+	void add_molecules_to_pde_test1(MoleculesSimple& mols,Pde& pde, const double overlap);
 private:
-	std::vector<double> x,y,z;
-	trng::yarn2 R;
+	base_generator_type R;
 };
 
-#endif /* MOLECULESSIMPLE_H_ */
+
+#endif /* PDEMOLECULESCOUPLING_H_ */

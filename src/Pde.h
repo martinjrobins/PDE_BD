@@ -81,6 +81,9 @@ using Teuchos::RCP;
 using Teuchos::rcp;
 
 class Pde {
+
+public:
+
 	typedef double ST;
 	typedef int    LO;
 	typedef int    GO;
@@ -97,7 +100,6 @@ class Pde {
 
 
 
-public:
 	Pde(const ST dt, const ST dx);
 	~Pde() {
 		delete [] node_is_owned;
@@ -109,6 +111,9 @@ public:
 	void add_particle(const ST x, const ST y, const ST z);
 	vtkUnstructuredGrid* get_grid();
 	vtkUnstructuredGrid* get_boundary();
+	RCP<vector_type> get_boundary_node_values();
+	RCP<multivector_type> get_boundary_node_positions();
+	double get_total_number_of_particles();
 private:
 
 	/*
@@ -125,6 +130,8 @@ private:
 	 */
 	RCP<sparse_graph_type> overlappedGraph;
 	RCP<sparse_graph_type> ownedGraph;
+	RCP<const map_type> boundarySubMapG;
+	RCP<const map_type> interiorSubMapG;
 	RCP<const map_type> globalMapG;
 	RCP<const map_type> overlappedMapG;
 	RCP<const export_type> exporter;
@@ -134,6 +141,8 @@ private:
 	 */
 	RCP<sparse_matrix_type> LHS,RHS;
 	RCP<vector_type> X;
+	RCP<vector_type> boundary_node_values;
+	RCP<multivector_type> boundary_node_positions;
 
 
 	/*
@@ -146,7 +155,6 @@ private:
 	Intrepid::FieldContainer<int> elem_to_node;
 	Intrepid::FieldContainer<ST> node_coord;
 	Teuchos::Array<long long> global_node_ids;
-	Teuchos::Array<int> ownedBCNodes;
 
 	Teuchos::Array<int> BCNodes;
 	Intrepid::FieldContainer<int> node_on_boundary;
@@ -186,7 +194,7 @@ private:
 	 * Timestepping
 	 */
 	ST dt;
-	constexpr static ST omega = 0.5;
+	constexpr static ST omega = 1.0;
 
 	/*
 	 * vtk unstructured grid

@@ -24,9 +24,10 @@
 
 #include "MoleculesSimple.h"
 #include <boost/bind.hpp>
-#include <trng/normal_dist.hpp>
 #include <algorithm>
 #include <time.h>
+
+#include <trng/normal_dist.hpp>
 
 MoleculesSimple::MoleculesSimple() {
 	R.seed(time(NULL));
@@ -55,5 +56,30 @@ void MoleculesSimple::diffuse(const double dt, const double D) {
 	std::transform(y.begin(), y.end(), y.begin(), diffuse);
 	std::transform(z.begin(), z.end(), z.begin(), diffuse);
 }
+
+struct reflect {
+	reflect(const double min, const double max):min(min),max(max),dx(max-min) {}
+	double operator()(double d) {
+		if (d > max) {
+			return (2.0*max - d);
+		}
+		if (d < min) {
+			return (2.0*min - d);
+		}
+		return d;
+	}
+private:
+		const double min,max,dx;
+};
+
+void MoleculesSimple::reflective_boundaries(const double xmin,
+		const double xmax, const double ymin, const double ymax,
+		const double zmin, const double zmax) {
+
+	std::transform(x.begin(), x.end(), x.begin(), reflect(xmin,xmax));
+	std::transform(y.begin(), y.end(), y.begin(), reflect(ymin,ymax));
+	std::transform(z.begin(), z.end(), z.begin(), reflect(zmin,zmax));
+}
+
 
 

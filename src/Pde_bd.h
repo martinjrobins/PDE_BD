@@ -30,6 +30,7 @@
 #include "Io.h"
 #include "MyMpi.h"
 #include "MoleculesSimple.h"
+#include "PdeMoleculesCoupling.h"
 
 
 #endif /* PDE_BD_H_ */

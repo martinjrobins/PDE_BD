@@ -31,19 +31,37 @@ int main(int argc, char **argv) {
 	using std::string;
 
 	Mpi::init(argc,argv);
-	const double dt = 0.0001;
-	const double dt_out = 0.001;
+	const double dt = 0.001;
+	const double dt_out = dt;
 	const double dx = 0.25;
+	const double D = 1.0;
+	const double overlap = 0.1;
+	const double dx2 = dx*dx;
 	Pde p(dt,dx);
-	p.add_particle(0.5,0.5,0.5);
-	for (int i = 0; i < 0.1/dt_out; ++i) {
-		std::stringstream filename_grid,filename_boundary;
+	MoleculesSimple m;
+	PdeMoleculesCoupling c;
+	for (int i = 0; i < 1000; ++i) {
+		p.add_particle(0.5,0.5,0.5);
+	}
+	for (int i = 0; i < 1.0/dt_out; ++i) {
+		std::stringstream filename_grid,filename_boundary,filename_molecules;
 		filename_grid <<format("test%05d.pvtu")%i;
 		filename_boundary<<format("testBoundary%05d.pvtu")%i;
+		filename_molecules<<format("testMolecules%05d.pvtu")%i;
 
 		Io::write_grid(filename_grid.str(),p.get_grid());
 		Io::write_grid(filename_boundary.str(),p.get_boundary());
-		p.integrate(dt_out);
+		Io::write_points(filename_molecules.str(),m.get_x(),m.get_y(),m.get_z());
+
+		const int iterations = int(dt_out/dt + 0.5);
+		const double actual_dt = iterations*dt;
+		for (int j = 0; j < iterations; ++j) {
+			p.integrate(dt);
+			c.generate_new_molecules(m, p, dt, dx2, D);
+			m.diffuse(dt,D);
+			m.reflective_boundaries(0,2,0,1,0,1);
+			c.add_molecules_to_pde_test1(m, p, overlap);
+		}
 	}
 }
 
