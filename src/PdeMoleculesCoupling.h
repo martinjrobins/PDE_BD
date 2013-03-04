@@ -36,7 +36,7 @@ public:
 	PdeMoleculesCoupling() {
 		R.seed(time(NULL));
 	}
-	void generate_new_molecules(MoleculesSimple& mols, Pde& pde, const double dt, const double dA, const double D);
+	int generate_new_molecules(MoleculesSimple& mols, Pde& pde, const double dt, const double dA, const double D);
 	void add_molecules_to_pde_test1(MoleculesSimple& mols,Pde& pde, const double overlap);
 private:
 	base_generator_type R;

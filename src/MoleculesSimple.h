@@ -42,6 +42,7 @@ public:
 	const std::vector<double>& get_x() {return x;}
 	const std::vector<double>& get_y() {return y;}
 	const std::vector<double>& get_z() {return z;}
+	const int size() {return x.size();}
 private:
 	std::vector<double> x,y,z;
 	trng::yarn2 R;

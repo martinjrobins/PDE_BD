@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
 	Mpi::init(argc,argv);
 	const double dt = 0.001;
 	const double dt_out = dt;
-	const double dx = 0.25;
+	const double dx = 0.1;
 	const double D = 1.0;
 	const double overlap = 0.1;
 	const double dx2 = dx*dx;
@@ -41,8 +41,9 @@ int main(int argc, char **argv) {
 	MoleculesSimple m;
 	PdeMoleculesCoupling c;
 	for (int i = 0; i < 1000; ++i) {
-		p.add_particle(0.5,0.5,0.5);
+		p.add_particle(0,0,0);
 	}
+	std::vector<double> pde_sizes,mol_sizes,t;
 	for (int i = 0; i < 1.0/dt_out; ++i) {
 		std::stringstream filename_grid,filename_boundary,filename_molecules;
 		filename_grid <<format("test%05d.pvtu")%i;
@@ -52,6 +53,15 @@ int main(int argc, char **argv) {
 		Io::write_grid(filename_grid.str(),p.get_grid());
 		Io::write_grid(filename_boundary.str(),p.get_boundary());
 		Io::write_points(filename_molecules.str(),m.get_x(),m.get_y(),m.get_z());
+
+		int Npde = p.get_total_number_of_particles();
+		int Nmol = m.size();
+		t.push_back(i*dt_out);
+		pde_sizes.push_back(Npde);
+		mol_sizes.push_back(Nmol);
+
+		std::cout << *(pde_sizes.end()-1) << " molecules in pde subdomain and "<<
+				     *(mol_sizes.end()-1) << " molecules in particle subdomain."<<std::endl;
 
 		const int iterations = int(dt_out/dt + 0.5);
 		const double actual_dt = iterations*dt;
@@ -63,6 +73,11 @@ int main(int argc, char **argv) {
 			c.add_molecules_to_pde_test1(m, p, overlap);
 		}
 	}
+	std::vector<std::vector<double>* > columns;
+	columns.push_back(&t);
+	columns.push_back(&pde_sizes);
+	columns.push_back(&mol_sizes);
+	Io::write_column_vectors("number_of_molecules","#time num_pde num_particle",columns);
 }
 
 

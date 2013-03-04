@@ -27,6 +27,9 @@
 #include "vtkXMLPUnstructuredGridWriter.h"
 #include "vtkSmartPointer.h"
 
+#include <iostream>
+#include <fstream>
+
 
 void Io::write_grid(std::string filename, vtkUnstructuredGrid* grid) {
 	const int my_rank = Mpi::mpiSession->getRank();
@@ -68,4 +71,18 @@ void Io::write_points(std::string filename, const std::vector<double>& x,
 	writer->SetFileName(filename.c_str());
 	writer->Write();
 }
+
+void Io::write_column_vectors(std::string filename, std::string header, std::vector<std::vector<double>* >& columns) {
+	std::ofstream f;
+	f.open (filename.c_str());
+	f << header << std::endl;
+	for (int i = 0; i < columns[0]->size(); ++i) {
+		for (int j = 0; j < columns.size()-1; ++j) {
+			f << columns[j]->at(i) << " ";
+		}
+		f << (*(columns.end()-1))->at(i) << std::endl;
+	}
+	f.close();
+}
+
 

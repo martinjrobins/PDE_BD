@@ -113,7 +113,8 @@ public:
 	vtkUnstructuredGrid* get_boundary();
 	RCP<vector_type> get_boundary_node_values();
 	RCP<multivector_type> get_boundary_node_positions();
-	double get_total_number_of_particles();
+	int get_total_number_of_particles();
+	void rescale(double s);
 private:
 
 	/*
@@ -130,6 +131,7 @@ private:
 	 */
 	RCP<sparse_graph_type> overlappedGraph;
 	RCP<sparse_graph_type> ownedGraph;
+	RCP<sparse_graph_type> ownedInteriorGraph;
 	RCP<const map_type> boundarySubMapG;
 	RCP<const map_type> interiorSubMapG;
 	RCP<const map_type> globalMapG;
@@ -139,9 +141,10 @@ private:
 	/*
 	 * Matricies
 	 */
-	RCP<sparse_matrix_type> LHS,RHS;
+	RCP<sparse_matrix_type> LHS,RHS,M;
 	RCP<vector_type> X;
 	RCP<vector_type> boundary_node_values;
+	RCP<vector_type> interior_node_values;
 	RCP<multivector_type> boundary_node_positions;
 
 
@@ -150,6 +153,8 @@ private:
 	 */
 	ST dirac_width;
 	const static int spaceDim = 3;
+	constexpr static double ri = 0.3;
+	constexpr static double ro = 0.8;
 	long long numNodesGlobal;
 	int numNodesPerFace;
 	Intrepid::FieldContainer<int> elem_to_node;
@@ -158,6 +163,7 @@ private:
 
 	Teuchos::Array<int> BCNodes;
 	Intrepid::FieldContainer<int> node_on_boundary;
+	Intrepid::FieldContainer<int> node_on_neumann;
 	Intrepid::FieldContainer<int> node_on_boundary_id;
 
 	Intrepid::FieldContainer<int> boundary_face_to_elem;
@@ -212,6 +218,7 @@ private:
 	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 	void solve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
+	std::string makeMeshInputSphere (const int nr, const int ntheta);
 	void create_vtk_grid();
 	void create_stk_grid();
 

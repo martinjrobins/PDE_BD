@@ -32,6 +32,9 @@ namespace Io {
 	void write_grid(std::string filename, vtkUnstructuredGrid* grid);
 	void write_points(std::string filename,
 			const std::vector<double>& x, const std::vector<double>& y, const std::vector<double>& z);
+	void write_column_vectors(std::string filename, std::string header,std::vector<std::vector<double>* >& columns);
 };
+
+
 
 #endif /* IO_H_ */

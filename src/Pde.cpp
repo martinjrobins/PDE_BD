@@ -34,6 +34,7 @@
 
 
 #include <MatrixMarket_Tpetra.hpp>
+#include <Tpetra_RTI.hpp>
 
 Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 	my_rank = Mpi::mpiSession->getRank();
@@ -46,6 +47,7 @@ Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 
 	std::string meshInput;
 	meshInput = makeMeshInput(1.0/dx, 1.0/dx, 1.0/dx);
+	//meshInput = makeMeshInputSphere((ro-ri)/dx, 2.0*3.14*0.5*(ro+ri)/dx);
 
 	setup_pamgen_mesh(meshInput);
 	create_cubature_and_basis();
@@ -62,6 +64,7 @@ void Pde::add_particle(const ST x, const ST y, const ST z) {
 	const int numNodes = node_coord.dimension(0);
 	int closest_node = 0;
 	double closest_distance = 10000.0;
+	double contribution = 1;
 	for (int i=0; i<numNodes; i++) {
 		if (node_is_owned[i]) {
 			const ST dx = node_coord(i,0) - x;
@@ -72,11 +75,24 @@ void Pde::add_particle(const ST x, const ST y, const ST z) {
 				if (r < closest_distance) {
 					closest_distance = r;
 					closest_node = i;
+					contribution = 1;
+					if (node_on_boundary(i)) {
+						contribution *= 2;
+					}
+					if ((node_coord(i,0)==0) || (node_coord(i,0)==2)) {
+						contribution *= 2;
+					}
+					if ((node_coord(i,1)==0)|| (node_coord(i,1)==1)) {
+						contribution *= 2;
+					}
+					if ((node_coord(i,2)==0)|| (node_coord(i,2)==1)) {
+						contribution *= 2;
+					}
 				} // if node within particle radius
 			} // if node within the square
 		} // if node is owned by this process
 	} // loop through all nodes
-	X->sumIntoLocalValue(closest_node, 1.0/(dirac_width*dirac_width*dirac_width));
+	X->sumIntoLocalValue(closest_node, contribution/(dirac_width*dirac_width*dirac_width));
 }
 
 struct fecomp{
@@ -391,6 +407,7 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 
 	// Container indicating whether a node is on the boundary (1-yes 0-no)
 	node_on_boundary.resize(numNodes);
+	node_on_neumann.resize(numNodes);
 
 	//faceOnBoundary.resize(numFaces);
 
@@ -413,12 +430,19 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 				const int iface = sideSetSideList[j]-1;
 				const int ielem = sideSetElemList[j]-1;
 				bool on_x_equal_one = true;
+				bool on_outer_boundary = true;
 				for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
 					const int sideNode = cellType.getNodeMap(2,iface,ifacenode);
 					const int local_nodeid = elem_to_node(ielem,sideNode);
 					on_x_equal_one &= node_coord(local_nodeid,0)==1.0;
+					on_outer_boundary &= node_coord(local_nodeid,0)==0.0 ||
+										 node_coord(local_nodeid,0)==2.0 ||
+										 node_coord(local_nodeid,1)==0.0 ||
+										 node_coord(local_nodeid,1)==1.0 ||
+										 node_coord(local_nodeid,2)==0.0 ||
+										 node_coord(local_nodeid,2)==1.0;
 				}
-				if (on_x_equal_one) {
+				if (!on_outer_boundary) {
 					i_boundary_face++;
 				}
 			}
@@ -439,17 +463,38 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 				const int iface = sideSetSideList[j]-1;
 				const int ielem = sideSetElemList[j]-1;
 
-				bool on_x_equal_one = true;
+				bool face_on_x_equal_one = true;
+				bool face_on_neumann = true;
+				bool face_on_outer_boundary = true;
 				for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
 					const int sideNode = cellType.getNodeMap(2,iface,ifacenode);
 					const int local_nodeid = elem_to_node(ielem,sideNode);
-					on_x_equal_one &= node_coord(local_nodeid,0)==1.0;
+					const double x = node_coord(local_nodeid,0);
+					const double y = node_coord(local_nodeid,1);
+					const double z = node_coord(local_nodeid,2);
+					bool on_x_equal_one = x==1.0;
+					bool on_neumann = y==0.0 || y==1.0 || z==0.0 || z==1.0 || x==0.0;
+					bool on_outer_boundary = x==0.0 ||
+							x==2.0 ||
+							y==0.0 ||
+							y==1.0 ||
+							z==0.0 ||
+							z==1.0;
+
+					if (on_outer_boundary) {
+						node_on_neumann(local_nodeid) = 1;
+					} else {
+						node_on_neumann(local_nodeid) = 0;
+					}
+
+					face_on_neumann &= on_neumann;
+					face_on_x_equal_one &= on_x_equal_one;
+					face_on_outer_boundary &= on_outer_boundary;
 				}
 
-				if (on_x_equal_one) {
+				if (!face_on_outer_boundary) {
 					boundary_face_to_elem(i_boundary_face) = ielem;
 					boundary_face_to_ordinal(i_boundary_face) = iface;
-
 					for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
 						const int sideNode = cellType.getNodeMap(2,iface,ifacenode);
 						const int local_nodeid = elem_to_node(ielem,sideNode);
@@ -458,7 +503,6 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 
 					i_boundary_face++;
 				}
-
 			}
 			delete [] sideSetElemList;
 			delete [] sideSetSideList;
@@ -694,6 +738,7 @@ void Pde::build_maps_and_create_matrices() {
 		// Construct Tpetra::CrsGraph objects.
 		overlappedGraph = rcp (new sparse_graph_type (overlappedMapG, 0));
 		ownedGraph = rcp (new sparse_graph_type (globalMapG, 0));
+		ownedInteriorGraph = rcp (new sparse_graph_type (interiorSubMapG, 0));
 
 		// Define desired workset size and count how many worksets
 		// there are on this process's mesh block.
@@ -739,6 +784,7 @@ void Pde::build_maps_and_create_matrices() {
 
 						//Update Tpetra overlap Graph
 						overlappedGraph->insertGlobalIndices (globalRowT, globalColAV);
+						ownedInteriorGraph->insertGlobalIndices (globalRowT, globalColAV);
 					}// *** cell col loop ***
 
 
@@ -778,6 +824,7 @@ void Pde::build_maps_and_create_matrices() {
 		// Export to owned distribution Graph, and fill-complete the latter.
 		ownedGraph->doExport (*overlappedGraph, *exporter, Tpetra::INSERT);
 		ownedGraph->fillComplete ();
+		ownedInteriorGraph->fillComplete();
 	}
 
 	LOG(2,"Constructing LHS and RHS matrix and vectors");
@@ -794,6 +841,8 @@ void Pde::build_maps_and_create_matrices() {
 	//
 	LHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
 	RHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
+	M = rcp (new sparse_matrix_type (ownedInteriorGraph.getConst ()));
+
 	//F = rcp (new vector_type (globalMapG));
 	X = rcp (new vector_type (globalMapG));
 
@@ -805,7 +854,8 @@ void Pde::build_maps_and_create_matrices() {
 	boundary_node_values = X->offsetViewNonConst(boundarySubMapG,
 												 globalMapG->getNodeNumElements()-boundarySubMapG->getNodeNumElements())
 									->getVectorNonConst(0);
-
+	interior_node_values = X->offsetViewNonConst(interiorSubMapG,0)
+									->getVectorNonConst(0);
 	int ownedBoundaryNodes = 0;
 	for (int i = 0; i < numNodes; ++i) {
 		if (node_is_owned[i]) {
@@ -910,6 +960,8 @@ void Pde::make_LHS_and_RHS () {
 		// If target of export has static graph, no need to do
 		// setAllToScalar(0.0); export will clobber values.
 		RHS->fillComplete ();
+
+		M->fillComplete();
 	}
 
 	//////////////////////////////////////////////////////////////////////////////
@@ -1142,7 +1194,26 @@ std::string Pde::makeMeshInput (const int nx, const int ny, const int nz) {
   return os.str ();
 }
 
+std::string Pde::makeMeshInputSphere (const int nr, const int ntheta) {
+  using std::endl;
+  std::ostringstream os;
 
+  os << "mesh" << endl
+     << "\tspherical" << endl
+     << "\t\tri = " << ri << endl
+     << "\t\tro = " << ro << endl
+     << "\t\tntheta =" << ntheta << endl
+     << "\t\tnphi =" << ntheta << endl
+     << "\t\tnr = " << nr << endl
+     << "\t\tbr	 = 1" << endl
+     << "\t\tbtheta = 1" << endl
+     << "\t\tbphi = 1" << endl
+     << "\t\ttheta = 90" << endl
+     << "\t\tphi = 90" << endl
+     << "\tend" << endl
+     << "end";
+  return os.str ();
+}
 
 vtkUnstructuredGrid* Pde::get_grid() {
 	return vtk_grid;
@@ -1685,6 +1756,8 @@ void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 						const int localCol  = elem_to_node(cell, cellCol);
 						int globalCol = as<int> (global_node_ids[localCol]);
 						ArrayView<int> globalColAV = arrayView<int> (&globalCol, 1);
+						ST operatorMassMatrixContribution =
+								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol);
 						ST operatorMatrixContributionLHS =
 								worksetMassMatrix (worksetCellOrdinal, cellRow, cellCol)
 								+ omega*dt*worksetStiffMatrix (worksetCellOrdinal, cellRow, cellCol);
@@ -1703,7 +1776,8 @@ void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 //									" cum RHS before = "<< testRHS[globalCol] <<
 //									std::endl;
 //						}
-
+						M->sumIntoGlobalValues(globalRow, globalColAV,
+								arrayView<ST> (&operatorMassMatrixContribution, 1));
 						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
 						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
@@ -1826,10 +1900,19 @@ RCP<Pde::multivector_type> Pde::get_boundary_node_positions() {
 	return boundary_node_positions;
 }
 
-double Pde::get_total_number_of_particles() {
-//	RCP<vector_type> M_times_concentrations =
-//			rcp (new vector_type (interiorSubMapG, true));
-//	RHS->apply(*X.getConst(),*rhsDir);
+int Pde::get_total_number_of_particles() {
+	using Tpetra::RTI::reduce;
+	using Tpetra::RTI::ZeroOp;
+	using Tpetra::RTI::reductionGlob;
+
+	RCP<vector_type> M_times_concentrations =
+			rcp (new vector_type (interiorSubMapG, true));
+	M->apply(*interior_node_values.getConst(),*M_times_concentrations);
+	return TPETRA_REDUCE1(M_times_concentrations, M_times_concentrations, ZeroOp<double>, std::plus<double>());
+}
+
+void Pde::rescale(double s) {
+	interior_node_values->scale(s);
 }
 
 void Pde::create_stk_grid() {
