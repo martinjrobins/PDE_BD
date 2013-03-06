@@ -35,6 +35,9 @@
 
 #include <MatrixMarket_Tpetra.hpp>
 #include <Tpetra_RTI.hpp>
+#include <boost/iterator/zip_iterator.hpp>
+#include <boost/tuple/tuple.hpp>
+
 
 Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 	my_rank = Mpi::mpiSession->getRank();
@@ -94,6 +97,90 @@ void Pde::add_particle(const ST x, const ST y, const ST z) {
 	} // loop through all nodes
 	X->sumIntoLocalValue(closest_node, contribution/(dirac_width*dirac_width*dirac_width));
 }
+
+void Pde::add_particles(std::vector<int>& points_added, const std::vector<double>& x,
+						 const std::vector<double>& y, const std::vector<double>& z) {
+	using namespace Intrepid;
+
+	if (x.size()==0) return;
+
+	FieldContainer<ST> pointSet(x.size(),spaceDim);
+
+	for (int i = 0; i < x.size(); ++i) {
+		pointSet(i,0) = x[i];
+		pointSet(i,1) = y[i];
+		pointSet(i,2) = z[i];
+	}
+
+
+	const int numPoints = pointSet.dimension(0);
+	const int numElems = elem_to_node.dimension(0);
+	const int numFieldsG = HGradBasis->getCardinality();
+
+	points_added.assign(numPoints,0);
+
+	FieldContainer<ST> cellWorkset (1, numFieldsG, spaceDim);
+	FieldContainer<ST> inCell(numPoints);
+	FieldContainer<ST> node_nums(numFieldsG);
+
+
+	for (int cell = 0; cell < numElems; ++cell) {
+
+		for (int node = 0; node < numFieldsG; ++node) {
+			node_nums(node) = elem_to_node(cell, node);
+			cellWorkset(0, node, 0) = node_coord(node_nums(node), 0);
+			cellWorkset(0, node, 1) = node_coord(node_nums(node), 1);
+			cellWorkset(0, node, 2) = node_coord(node_nums(node), 2);
+		}
+
+		CellTools<ST>::checkPointwiseInclusion(inCell,
+				pointSet,
+				cellWorkset,
+				cellType,
+				0);
+
+		std::vector<int> point_ordinals;
+		for (int point = 0; point < numPoints; ++point) {
+			if (inCell(point)) {
+				point_ordinals.push_back(point);
+				points_added[point] = 1;
+			}
+		}
+		const int numPointsInCell = point_ordinals.size();
+
+		if (numPointsInCell==0) continue;
+
+		FieldContainer<ST> tmp_points(numPointsInCell,spaceDim);
+		FieldContainer<ST> ref_points(numPointsInCell,spaceDim);
+		FieldContainer<ST> basisAtPoints(numFieldsG, numPointsInCell);
+
+
+		for (int point = 0; point < numPointsInCell; ++point) {
+			for (int d = 0; d < spaceDim; ++d) {
+				tmp_points(point,d) = pointSet(point_ordinals[point],d);
+			}
+		}
+
+//		CellTools<ST>::mapToReferenceFrame(ref_points,
+//											tmp_points,
+//											cellWorkset,
+//											cellType,
+//											0);
+
+		HGradBasis->getValues(basisAtPoints, ref_points, OPERATOR_VALUE);
+
+		for (int point = 0; point < numPointsInCell; ++point) {
+			for (int node = 0; node < numFieldsG; ++node) {
+//				X->sumIntoLocalValue(node_nums(node), basisAtPoints(node,point));
+				X->sumIntoLocalValue(node_nums(node), 0.25);
+			}
+		}
+
+	}
+
+
+}
+
 
 struct fecomp{
 	bool operator () ( topo_entity* x,  topo_entity*  y )const

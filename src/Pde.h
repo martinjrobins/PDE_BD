@@ -109,6 +109,9 @@ public:
 	}
 	void integrate(const ST dt);
 	void add_particle(const ST x, const ST y, const ST z);
+	void add_particles(std::vector<int>& points_added, const std::vector<double>& x,
+			 const std::vector<double>& y, const std::vector<double>& z);
+
 	vtkUnstructuredGrid* get_grid();
 	vtkUnstructuredGrid* get_boundary();
 	RCP<vector_type> get_boundary_node_values();
@@ -182,8 +185,10 @@ private:
 	 */
 	const static int cubDegree = 2;
 	RCP<Intrepid::Cubature<ST> > cubature;
-	Intrepid::FieldContainer<ST> cubPoints;
+	Intrepid::FieldContainer<ST> ref_points;
 	Intrepid::FieldContainer<ST> cubWeights;
+	Intrepid::FieldContainer<ST> cubPoints;
+
 
 	RCP<Intrepid::Basis<ST, Intrepid::FieldContainer<ST> > >  HGradBasis;
 	Intrepid::FieldContainer<ST> HGBValues;

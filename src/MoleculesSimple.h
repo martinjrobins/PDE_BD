@@ -35,13 +35,15 @@ public:
 	MoleculesSimple();
 	void add_particle(const double x, const double Y, const double z);
 	void remove_particle(const int i);
+	void remove_particles(std::vector<int>& to_delete);
+
 	void diffuse(const double dt, const double D);
 	void reflective_boundaries(const double xmin,const double xmax,
 			const double ymin, const double ymax,
 			const double zmin, const double zmax);
-	const std::vector<double>& get_x() {return x;}
-	const std::vector<double>& get_y() {return y;}
-	const std::vector<double>& get_z() {return z;}
+	std::vector<double>& get_x() {return x;}
+	std::vector<double>& get_y() {return y;}
+	std::vector<double>& get_z() {return z;}
 	const int size() {return x.size();}
 private:
 	std::vector<double> x,y,z;

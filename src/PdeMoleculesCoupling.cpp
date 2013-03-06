@@ -27,7 +27,11 @@
 //#include <math.h>
 
 #include <Tpetra_RTI.hpp>
+#include <Intrepid_FieldContainer.hpp>
 #include <numeric>
+
+#include <boost/iterator/zip_iterator.hpp>
+#include <boost/tuple/tuple.hpp>
 
 int find_first(const double to_find, const std::vector<double>& to_find_in) {
 	if (to_find_in[0] >= to_find) return 0;
@@ -104,17 +108,46 @@ int PdeMoleculesCoupling::generate_new_molecules(MoleculesSimple& mols,
 	return Ngenerated;
 }
 
+struct equal_one {
+	bool operator()(boost::tuple<double,double,double,int> p) {
+		return boost::get<3>(p)==1;
+	}
+};
+
 void PdeMoleculesCoupling::add_molecules_to_pde_test1(MoleculesSimple& mols,
 		Pde& pde, const double overlap) {
+
 	const std::vector<double>& x = mols.get_x();
 	const std::vector<double>& y = mols.get_y();
 	const std::vector<double>& z = mols.get_z();
+	std::vector<int> points_added(x.size(),0);
 	for (int i = 0; i < x.size(); ++i) {
-		if (x[i] < 1.0-overlap) {
+		if (x[i] < 1-overlap) {
 			pde.add_particle(x[i],y[i],z[i]);
-			mols.remove_particle(i);
+			points_added[i] = 1;
 		}
 	}
+
+//	std::vector<int> points_added;
+//	pde.add_particles(points_added,x,y,z);
+	mols.remove_particles(points_added);
+
+//	typedef boost::tuple<double,double,double,int> tuple_type;
+//	typedef boost::tuple<std::vector<double>::iterator,std::vector<double>::iterator,
+//			       std::vector<double>::iterator,std::vector<int>::iterator> tuple_iterator_type;
+//	typedef boost::zip_iterator<tuple_iterator_type> zip_type;
+//
+//	zip_type b = boost::make_zip_iterator(boost::make_tuple(x.begin(),y.begin(),z.begin(),points_added.begin()));
+//	zip_type e = boost::make_zip_iterator(boost::make_tuple(x.end(),y.end(),z.end(),points_added.end()));
+//
+////	zip_type to_delete = std::partition(b,e,
+////				   [](tuple_type p) {return boost::get<3>(p)==1;} );
+//	zip_type to_delete = std::partition(b,e,equal_one());
+//
+//	x.erase(boost::get<0>(to_delete.get_iterator_tuple()),x.end());
+//	y.erase(boost::get<1>(to_delete.get_iterator_tuple()),y.end());
+//	z.erase(boost::get<2>(to_delete.get_iterator_tuple()),y.end());
+
 }
 
 

@@ -45,6 +45,20 @@ void MoleculesSimple::remove_particle(const int i) {
 	x.pop_back();y.pop_back();z.pop_back();
 }
 
+void MoleculesSimple::remove_particles(std::vector<int>& to_delete) {
+	for (int i = 0; i < x.size(); ++i) {
+		while((i<to_delete.size())&&(to_delete[i])) {
+			x[i] = *(x.end()-1);
+			y[i] = *(y.end()-1);
+			z[i] = *(z.end()-1);
+			to_delete[i] = *(to_delete.end()-1);
+			x.pop_back();y.pop_back();z.pop_back();to_delete.pop_back();
+		}
+
+	}
+
+}
+
 
 void MoleculesSimple::diffuse(const double dt, const double D) {
 	trng::normal_dist<double> N(0,1);
