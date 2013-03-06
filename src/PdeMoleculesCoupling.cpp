@@ -59,6 +59,9 @@ int PdeMoleculesCoupling::generate_new_molecules(MoleculesSimple& mols,
 		const double x = boundary_node_positions->getVector(0)->get1dView()[i];
 		const double y = boundary_node_positions->getVector(1)->get1dView()[i];
 		const double z = boundary_node_positions->getVector(2)->get1dView()[i];
+		if ((x==0)||(x==2)) {
+			bnv[i] /= 2.0;
+		}
 		if ((y==0)||(y==1)) {
 			bnv[i] /= 2.0;
 		}
@@ -147,6 +150,26 @@ void PdeMoleculesCoupling::add_molecules_to_pde_test1(MoleculesSimple& mols,
 //	x.erase(boost::get<0>(to_delete.get_iterator_tuple()),x.end());
 //	y.erase(boost::get<1>(to_delete.get_iterator_tuple()),y.end());
 //	z.erase(boost::get<2>(to_delete.get_iterator_tuple()),y.end());
+
+}
+
+void PdeMoleculesCoupling::add_molecules_to_pde_test2(MoleculesSimple& mols,
+		Pde& pde, const double overlap) {
+
+	const std::vector<double>& x = mols.get_x();
+	const std::vector<double>& y = mols.get_y();
+	const std::vector<double>& z = mols.get_z();
+	std::vector<int> points_added(x.size(),0);
+	for (int i = 0; i < x.size(); ++i) {
+		const double r = sqrt(pow(x[i],2) + pow(y[i],2) + pow(z[i],2));
+		if ((r > Pde::ri + overlap) && (r < Pde::ro - overlap)) {
+			pde.add_particle(x[i],y[i],z[i]);
+			points_added[i] = 1;
+		}
+	}
+
+	mols.remove_particles(points_added);
+
 
 }
 

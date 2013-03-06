@@ -99,8 +99,7 @@ public:
 	typedef Tpetra::CrsGraph<LO, GO, Node>    sparse_graph_type;
 
 
-
-	Pde(const ST dt, const ST dx);
+	Pde(const ST dt, const ST dx, const int test_no=1);
 	~Pde() {
 		delete [] node_is_owned;
 		node_is_owned = NULL;
@@ -118,6 +117,9 @@ public:
 	RCP<multivector_type> get_boundary_node_positions();
 	int get_total_number_of_particles();
 	void rescale(double s);
+
+	constexpr static double ri = 0.3;
+	constexpr static double ro = 0.8;
 private:
 
 	/*
@@ -156,8 +158,7 @@ private:
 	 */
 	ST dirac_width;
 	const static int spaceDim = 3;
-	constexpr static double ri = 0.3;
-	constexpr static double ro = 0.8;
+
 	long long numNodesGlobal;
 	int numNodesPerFace;
 	Intrepid::FieldContainer<int> elem_to_node;
@@ -224,6 +225,7 @@ private:
 	void solve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
 	std::string makeMeshInputSphere (const int nr, const int ntheta);
+	std::string makeMeshInputRadialTrisection (const int nr, const int ntheta, const int nz);
 	void create_vtk_grid();
 	void create_stk_grid();
 

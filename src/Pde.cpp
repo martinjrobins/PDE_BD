@@ -39,7 +39,7 @@
 #include <boost/tuple/tuple.hpp>
 
 
-Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
+Pde::Pde(const ST dt, const ST dx,const int test_no):dt(dt),dirac_width(dx) {
 	my_rank = Mpi::mpiSession->getRank();
 	num_procs = Mpi::mpiSession->getNProc();
 
@@ -49,8 +49,12 @@ Pde::Pde(const ST dt, const ST dx):dt(dt),dirac_width(dx) {
 
 
 	std::string meshInput;
-	meshInput = makeMeshInput(1.0/dx, 1.0/dx, 1.0/dx);
-	//meshInput = makeMeshInputSphere((ro-ri)/dx, 2.0*3.14*0.5*(ro+ri)/dx);
+	if (test_no == 1) {
+		meshInput = makeMeshInput(1.0/dx, 1.0/dx, 1.0/dx);
+	} else if (test_no == 2) {
+		meshInput = makeMeshInputRadialTrisection(ro/dx,0.5*3.14*ro/dx,1.0/dx);
+		//meshInput = makeMeshInputSphere((ro-ri)/dx, 0.5*3.14*0.5*(ro+ri)/dx);
+	}
 
 	setup_pamgen_mesh(meshInput);
 	create_cubature_and_basis();
@@ -529,7 +533,7 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 										 node_coord(local_nodeid,2)==0.0 ||
 										 node_coord(local_nodeid,2)==1.0;
 				}
-				if (!on_outer_boundary) {
+				if (1) {
 					i_boundary_face++;
 				}
 			}
@@ -579,7 +583,7 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 					face_on_outer_boundary &= on_outer_boundary;
 				}
 
-				if (!face_on_outer_boundary) {
+				if (1) {
 					boundary_face_to_elem(i_boundary_face) = ielem;
 					boundary_face_to_ordinal(i_boundary_face) = iface;
 					for (int ifacenode = 0; ifacenode < numNodesPerFace; ++ifacenode) {
@@ -966,7 +970,18 @@ void Pde::integrate(const ST requested_dt) {
 		/*
 		 * Solve FEM system
 		 */
-		solve();
+		ST xsum = Tpetra::RTI::reduce( *interior_node_values,
+				Tpetra::RTI::reductionGlob<
+				Tpetra::RTI::ZeroOp<ST>>(
+						[](ST d){return d;},
+						std::plus<ST>()
+				) );
+		std::cout << "xsum = "<<xsum<<std::endl;
+		if (xsum <= 0) {
+			X->putScalar(0);
+		} else {
+			solve();
+		}
 	}
 }
 
@@ -1270,12 +1285,12 @@ std::string Pde::makeMeshInput (const int nx, const int ny, const int nz) {
      << "\t\tgmax = 1 1 1" << endl
      << "\tend" << endl
      << "\tset assign" << endl
-     << "\t\tsideset, ilo, 1" << endl
-     << "\t\tsideset, jlo, 2" << endl
-     << "\t\tsideset, klo, 3" << endl
+//     << "\t\tsideset, ilo, 1" << endl
+//     << "\t\tsideset, jlo, 2" << endl
+//     << "\t\tsideset, klo, 3" << endl
      << "\t\tsideset, ihi, 4" << endl
-     << "\t\tsideset, jhi, 5" << endl
-     << "\t\tsideset, khi, 6" << endl
+//     << "\t\tsideset, jhi, 5" << endl
+//     << "\t\tsideset, khi, 6" << endl
      << "\tend" << endl
      << "end";
   return os.str ();
@@ -1297,6 +1312,36 @@ std::string Pde::makeMeshInputSphere (const int nr, const int ntheta) {
      << "\t\tbphi = 1" << endl
      << "\t\ttheta = 90" << endl
      << "\t\tphi = 90" << endl
+     << "\tend" << endl
+     << "\tset assign" << endl
+     << "\t\tsideset, ilo, 1" << endl
+
+
+     << "\t\tsideset, ihi, 4" << endl
+
+     << "\tend" << endl
+     << "end";
+  return os.str ();
+}
+
+std::string Pde::makeMeshInputRadialTrisection (const int nr, const int ntheta, const int nz) {
+  using std::endl;
+  std::ostringstream os;
+
+  os << "mesh" << endl
+     << "\tradial trisection" << endl
+     << "\t\ttrisection blocks, 3" << endl
+     << "\t\ttransition radius, 6.5" << endl
+     << "\tnumz 1"<< endl
+     << "\t\tzblock 1 1. interval "<<nz<<endl
+     << "\tnumr 2"<< endl
+     << "\t\trblock 1 "<<0.2*ro<<" interval "<<int(0.2*nr)<<endl
+     << "\t\trblock 2 "<<0.8*ro<<" interval "<<int(0.8*nr)<<endl
+     << "\tnuma 1"<< endl
+     << "\t\tablock 1 90. interval "<<ntheta<<endl
+     << "\tend" << endl
+     << "\tset assign" << endl
+     << "\t\tsideset, ihi, 1" << endl
      << "\tend" << endl
      << "end";
   return os.str ();

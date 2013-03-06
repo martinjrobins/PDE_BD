@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
 	const double D = 1.0;
 	const double overlap = 0.1;
 	const double dx2 = dx*dx;
-	Pde p(dt,dx);
+	Pde p(dt,dx,1);
 	MoleculesSimple m;
 	PdeMoleculesCoupling c;
 	for (int i = 0; i < 1000; ++i) {
