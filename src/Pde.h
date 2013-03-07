@@ -114,6 +114,7 @@ public:
 	vtkUnstructuredGrid* get_grid();
 	vtkUnstructuredGrid* get_boundary();
 	RCP<vector_type> get_boundary_node_values();
+	RCP<vector_type> get_boundary_node_areas();
 	RCP<multivector_type> get_boundary_node_positions();
 	int get_total_number_of_particles();
 	void rescale(double s);
@@ -137,6 +138,9 @@ private:
 	RCP<sparse_graph_type> overlappedGraph;
 	RCP<sparse_graph_type> ownedGraph;
 	RCP<sparse_graph_type> ownedInteriorGraph;
+	RCP<sparse_graph_type> overlappedMassGraph;
+	RCP<sparse_graph_type> ownedMassGraph;
+
 	RCP<const map_type> boundarySubMapG;
 	RCP<const map_type> interiorSubMapG;
 	RCP<const map_type> globalMapG;
@@ -146,10 +150,12 @@ private:
 	/*
 	 * Matricies
 	 */
-	RCP<sparse_matrix_type> LHS,RHS,M;
-	RCP<vector_type> X;
+	RCP<sparse_matrix_type> LHS,RHS,M,M_all;
+	RCP<vector_type> X,volumes_and_areas;
 	RCP<vector_type> boundary_node_values;
 	RCP<vector_type> interior_node_values;
+	RCP<vector_type> interior_node_volumes;
+	RCP<vector_type> boundary_node_areas;
 	RCP<multivector_type> boundary_node_positions;
 
 
@@ -218,14 +224,17 @@ private:
 	void create_cubature_and_basis();
 	void build_maps_and_create_matrices();
 	void make_LHS_and_RHS();
+	void calculate_volumes_and_areas();
 	void boundary_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS);
-	void boundary_integrals2(RCP<sparse_matrix_type> oLHS,RCP<sparse_matrix_type> oRHS);
-	void volume_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS);
+	void boundary_integrals2(RCP<sparse_matrix_type> oLHS,RCP<sparse_matrix_type> oRHS, RCP<sparse_matrix_type> oM_all);
+	void volume_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS, RCP<sparse_matrix_type> oM_all);
 	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 	void solve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
 	std::string makeMeshInputSphere (const int nr, const int ntheta);
 	std::string makeMeshInputRadialTrisection (const int nr, const int ntheta, const int nz);
+	std::string makeMeshInputCylinder (const int nr, const int ntheta, const int nz);
+
 	void create_vtk_grid();
 	void create_stk_grid();
 

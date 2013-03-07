@@ -50,30 +50,22 @@ int find_first(const double to_find, const std::vector<double>& to_find_in) {
 int PdeMoleculesCoupling::generate_new_molecules(MoleculesSimple& mols,
 		Pde& pde, const double dt, const double dA, const double D) {
 	RCP<Pde::vector_type> boundary_node_values = pde.get_boundary_node_values();
+	RCP<Pde::vector_type> boundary_node_areas = pde.get_boundary_node_areas();
+
 	RCP<Pde::multivector_type> boundary_node_positions = pde.get_boundary_node_positions();
 
 	std::vector<double> bnv(boundary_node_values->getLocalLength());
 	std::vector<double> bnv_cumsum(boundary_node_values->getLocalLength());
+
 	boundary_node_values->get1dCopy(Teuchos::ArrayView<double>(bnv));
 	for (int i = 0; i < boundary_node_values->getLocalLength(); ++i) {
-		const double x = boundary_node_positions->getVector(0)->get1dView()[i];
-		const double y = boundary_node_positions->getVector(1)->get1dView()[i];
-		const double z = boundary_node_positions->getVector(2)->get1dView()[i];
-		if ((x==0)||(x==2)) {
-			bnv[i] /= 2.0;
-		}
-		if ((y==0)||(y==1)) {
-			bnv[i] /= 2.0;
-		}
-		if ((z==0)||(z==1)) {
-			bnv[i] /= 2.0;
-		}
+		bnv[i] *= boundary_node_areas->get1dView()[i];
 	}
 	//std::replace_if(bnv.begin(),bnv.end(),[](double d){return d<0;},0);
 	std::partial_sum(bnv.begin(),bnv.end(),bnv_cumsum.begin());
 
 	const double sum_values = *(bnv_cumsum.end()-1);
-	const double Ld = dA*sum_values/dt;
+	const double Ld = sum_values/dt;
 
 	if (Ld <= 0) return 0;
 
@@ -88,6 +80,7 @@ int PdeMoleculesCoupling::generate_new_molecules(MoleculesSimple& mols,
 
 	double tau = -log(U())/Ld;
 	const int Npde = pde.get_total_number_of_particles();
+	if (Npde <= 0) return 0;
 	int Ngenerated = 0;
 	while (tau < dt) {
 		const double r = U()*sum_values;
@@ -161,7 +154,7 @@ void PdeMoleculesCoupling::add_molecules_to_pde_test2(MoleculesSimple& mols,
 	const std::vector<double>& z = mols.get_z();
 	std::vector<int> points_added(x.size(),0);
 	for (int i = 0; i < x.size(); ++i) {
-		const double r = sqrt(pow(x[i],2) + pow(y[i],2) + pow(z[i],2));
+		const double r = sqrt(pow(x[i],2) + pow(y[i],2));
 		if ((r > Pde::ri + overlap) && (r < Pde::ro - overlap)) {
 			pde.add_particle(x[i],y[i],z[i]);
 			points_added[i] = 1;

@@ -52,8 +52,10 @@ Pde::Pde(const ST dt, const ST dx,const int test_no):dt(dt),dirac_width(dx) {
 	if (test_no == 1) {
 		meshInput = makeMeshInput(1.0/dx, 1.0/dx, 1.0/dx);
 	} else if (test_no == 2) {
-		meshInput = makeMeshInputRadialTrisection(ro/dx,0.5*3.14*ro/dx,1.0/dx);
+		//meshInput = makeMeshInputRadialTrisection(ro/dx,0.5*3.14*ro/dx,1.0/dx);
 		//meshInput = makeMeshInputSphere((ro-ri)/dx, 0.5*3.14*0.5*(ro+ri)/dx);
+		meshInput = makeMeshInputCylinder((ro-ri)/dx,0.5*3.14*0.5*(ro+ri)/dx,1.0/dx);
+		std::cout << meshInput;
 	}
 
 	setup_pamgen_mesh(meshInput);
@@ -61,6 +63,7 @@ Pde::Pde(const ST dt, const ST dx,const int test_no):dt(dt),dirac_width(dx) {
 	build_maps_and_create_matrices();
 	create_vtk_grid();
 	make_LHS_and_RHS();
+	calculate_volumes_and_areas();
 }
 
 void Pde::add_particle(const ST x, const ST y, const ST z) {
@@ -71,7 +74,6 @@ void Pde::add_particle(const ST x, const ST y, const ST z) {
 	const int numNodes = node_coord.dimension(0);
 	int closest_node = 0;
 	double closest_distance = 10000.0;
-	double contribution = 1;
 	for (int i=0; i<numNodes; i++) {
 		if (node_is_owned[i]) {
 			const ST dx = node_coord(i,0) - x;
@@ -82,24 +84,25 @@ void Pde::add_particle(const ST x, const ST y, const ST z) {
 				if (r < closest_distance) {
 					closest_distance = r;
 					closest_node = i;
-					contribution = 1;
-					if (node_on_boundary(i)) {
-						contribution *= 2;
-					}
-					if ((node_coord(i,0)==0) || (node_coord(i,0)==2)) {
-						contribution *= 2;
-					}
-					if ((node_coord(i,1)==0)|| (node_coord(i,1)==1)) {
-						contribution *= 2;
-					}
-					if ((node_coord(i,2)==0)|| (node_coord(i,2)==1)) {
-						contribution *= 2;
-					}
+//					contribution = 1;
+//					if (node_on_boundary(i)) {
+//						contribution *= 2;
+//					}
+//					if ((node_coord(i,0)==0) || (node_coord(i,0)==2)) {
+//						contribution *= 2;
+//					}
+//					if ((node_coord(i,1)==0)|| (node_coord(i,1)==1)) {
+//						contribution *= 2;
+//					}
+//					if ((node_coord(i,2)==0)|| (node_coord(i,2)==1)) {
+//						contribution *= 2;
+//					}
 				} // if node within particle radius
 			} // if node within the square
 		} // if node is owned by this process
 	} // loop through all nodes
-	X->sumIntoLocalValue(closest_node, contribution/(dirac_width*dirac_width*dirac_width));
+	//std::cout << "adding "<<1.0/interior_node_volumes->get1dView()[closest_node]<< " to node "<<closest_node<<std::endl;
+	X->sumIntoLocalValue(closest_node, 1.0/interior_node_volumes->get1dView()[closest_node]);
 }
 
 void Pde::add_particles(std::vector<int>& points_added, const std::vector<double>& x,
@@ -219,10 +222,9 @@ void Pde::setup_pamgen_mesh(const std::string& meshInput){
 
 	refFaceToNode.resize(numFacesPerElem,numNodesPerFace);
 	for (int i=0; i<numFacesPerElem; i++){
-		refFaceToNode(i,0)=cellType.getNodeMap(2, i, 0);
-		refFaceToNode(i,1)=cellType.getNodeMap(2, i, 1);
-		refFaceToNode(i,2)=cellType.getNodeMap(2, i, 2);
-		refFaceToNode(i,3)=cellType.getNodeMap(2, i, 3);
+		for (int j = 0; j < numNodesPerFace; ++j) {
+			refFaceToNode(i,j)=cellType.getNodeMap(spaceDim-1, i, j);
+		}
 	}
 
 	/**********************************************************************************/
@@ -828,8 +830,13 @@ void Pde::build_maps_and_create_matrices() {
 
 		// Construct Tpetra::CrsGraph objects.
 		overlappedGraph = rcp (new sparse_graph_type (overlappedMapG, 0));
+		overlappedMassGraph = rcp (new sparse_graph_type (overlappedMapG, 0));
+
 		ownedGraph = rcp (new sparse_graph_type (globalMapG, 0));
+		ownedMassGraph = rcp (new sparse_graph_type (globalMapG, 0));
+
 		ownedInteriorGraph = rcp (new sparse_graph_type (interiorSubMapG, 0));
+
 
 		// Define desired workset size and count how many worksets
 		// there are on this process's mesh block.
@@ -875,6 +882,7 @@ void Pde::build_maps_and_create_matrices() {
 
 						//Update Tpetra overlap Graph
 						overlappedGraph->insertGlobalIndices (globalRowT, globalColAV);
+						overlappedMassGraph->insertGlobalIndices (globalRowT, globalColAV);
 						ownedInteriorGraph->insertGlobalIndices (globalRowT, globalColAV);
 					}// *** cell col loop ***
 
@@ -894,6 +902,7 @@ void Pde::build_maps_and_create_matrices() {
 				const int sideNode = cellType.getNodeMap(2,iface,iface_point);
 				const int local_index_bp = elem_to_node(ielem,sideNode);
 				Tpetra::global_size_t global_index_bcp = as<Tpetra::global_size_t> (node_on_boundary_id(local_index_bp));
+
 				int global_index_bcp_int = as<int> (global_index_bcp);
 				Teuchos::ArrayView<int> global_index_bcp_AV = Teuchos::arrayView (&global_index_bcp_int, 1);
 				for (int cellpt = 0; cellpt < numNodesPerFace; cellpt++) {
@@ -901,20 +910,32 @@ void Pde::build_maps_and_create_matrices() {
 					const int local_index_p  = elem_to_node(ielem, sideNode2);
 					//globalRow for Tpetra Graph
 					Tpetra::global_size_t global_index_p = as<Tpetra::global_size_t> (global_node_ids[local_index_p]);
+					Tpetra::global_size_t global_index_bcp2 = as<Tpetra::global_size_t> (node_on_boundary_id(local_index_p));
+
 					int global_index_p_int = as<int> (global_index_p);
 					Teuchos::ArrayView<int> global_index_p_AV = Teuchos::arrayView (&global_index_p_int, 1);
+
+					int global_index_bcp2_int = as<int> (global_index_bcp2);
+					Teuchos::ArrayView<int> global_index_bcp2_AV = Teuchos::arrayView (&global_index_bcp2_int, 1);
 					overlappedGraph->insertGlobalIndices (global_index_bcp, global_index_p_AV);
 					overlappedGraph->insertGlobalIndices (global_index_p, global_index_bcp_AV);
+					overlappedMassGraph->insertGlobalIndices (global_index_bcp, global_index_bcp2_AV);
+
 				}
 			}
 		}
 
 		// Fill-complete overlapping distribution Graph.
 		overlappedGraph->fillComplete ();
+		overlappedMassGraph->fillComplete();
+
 
 		// Export to owned distribution Graph, and fill-complete the latter.
 		ownedGraph->doExport (*overlappedGraph, *exporter, Tpetra::INSERT);
 		ownedGraph->fillComplete ();
+		ownedMassGraph->doExport (*overlappedMassGraph, *exporter, Tpetra::INSERT);
+		ownedMassGraph->fillComplete ();
+
 		ownedInteriorGraph->fillComplete();
 	}
 
@@ -933,20 +954,32 @@ void Pde::build_maps_and_create_matrices() {
 	LHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
 	RHS = rcp (new sparse_matrix_type (ownedGraph.getConst ()));
 	M = rcp (new sparse_matrix_type (ownedInteriorGraph.getConst ()));
+	M_all = rcp (new sparse_matrix_type (ownedMassGraph.getConst ()));
 
 	//F = rcp (new vector_type (globalMapG));
 	X = rcp (new vector_type (globalMapG));
+	volumes_and_areas = rcp (new vector_type (globalMapG));
 
 	// initialise source term and concentration to zero
 	//F->putScalar(0);
 	X->putScalar(0);
 
-	boundary_node_positions = rcp (new multivector_type (boundarySubMapG,spaceDim));
+	boundary_node_areas = volumes_and_areas->offsetViewNonConst(boundarySubMapG,
+				globalMapG->getNodeNumElements()-boundarySubMapG->getNodeNumElements())
+				->getVectorNonConst(0);
+
+	interior_node_volumes = volumes_and_areas->offsetViewNonConst(interiorSubMapG,0)
+											->getVectorNonConst(0);
+
 	boundary_node_values = X->offsetViewNonConst(boundarySubMapG,
 												 globalMapG->getNodeNumElements()-boundarySubMapG->getNodeNumElements())
 									->getVectorNonConst(0);
+
 	interior_node_values = X->offsetViewNonConst(interiorSubMapG,0)
 									->getVectorNonConst(0);
+
+	boundary_node_positions = rcp (new multivector_type (boundarySubMapG,spaceDim));
+
 	int ownedBoundaryNodes = 0;
 	for (int i = 0; i < numNodes; ++i) {
 		if (node_is_owned[i]) {
@@ -1001,6 +1034,9 @@ void Pde::make_LHS_and_RHS () {
 	RCP<sparse_matrix_type> oRHS=
 			rcp (new sparse_matrix_type (overlappedGraph.getConst ()));
 	oRHS->setAllToScalar (STS::zero ());
+	RCP<sparse_matrix_type> oM_all=
+			rcp (new sparse_matrix_type (overlappedMassGraph.getConst ()));
+	oM_all->setAllToScalar (STS::zero ());
 
 //	const int globalRow = 1;
 //		const int globalCol = 0;
@@ -1019,7 +1055,7 @@ void Pde::make_LHS_and_RHS () {
 	{
 		TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleBoundaryIntegral);
 
-		boundary_integrals2(oLHS,oRHS);
+		boundary_integrals2(oLHS,oRHS,oM_all);
 	}
 
 
@@ -1036,7 +1072,7 @@ void Pde::make_LHS_and_RHS () {
 	{
 		TimeMonitor timerAssembleGlobalMatrixL (*timerAssembleVolumeIntegral);
 
-		volume_integrals(oLHS,oRHS);
+		volume_integrals(oLHS,oRHS,oM_all);
 	}
 
 
@@ -1062,6 +1098,12 @@ void Pde::make_LHS_and_RHS () {
 		// If target of export has static graph, no need to do
 		// setAllToScalar(0.0); export will clobber values.
 		RHS->fillComplete ();
+
+		M_all->setAllToScalar (STS::zero ());
+		M_all->doExport (*oM_all, *exporter, Tpetra::ADD);
+		// If target of export has static graph, no need to do
+		// setAllToScalar(0.0); export will clobber values.
+		M_all->fillComplete ();
 
 		M->fillComplete();
 	}
@@ -1347,6 +1389,33 @@ std::string Pde::makeMeshInputRadialTrisection (const int nr, const int ntheta, 
   return os.str ();
 }
 
+std::string Pde::makeMeshInputCylinder (const int nr, const int ntheta, const int nz) {
+  using std::endl;
+  std::ostringstream os;
+
+  os << "mesh" << endl
+     << "\tcylindrical" << endl
+     << "\t\tri = " << ri << endl
+     << "\t\tro = " << ro << endl
+     << "\t\tnr = " << nr << endl
+     << "\t\tbr	 = 1" << endl
+     << "\t\tntheta =" << ntheta << endl
+     << "\t\tbtheta = 1" << endl
+     << "\t\ttheta = 90" << endl
+     << "\t\tzmin = 0" << endl
+     << "\t\tzmax = 1" << endl
+     << "\t\tnz = " << nz << endl
+     << "\t\tbz	 = 1" << endl
+     << "\tend" << endl
+     << "\tset assign" << endl
+     << "\t\tsideset, ilo, 1" << endl
+     << "\t\tsideset, ihi, 2" << endl
+     << "\tend" << endl
+     << "end";
+  return os.str ();
+
+}
+
 vtkUnstructuredGrid* Pde::get_grid() {
 	return vtk_grid;
 }
@@ -1605,7 +1674,7 @@ void Pde::boundary_integrals(RCP<sparse_matrix_type> oLHS,
 }
 
 void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
-		RCP<sparse_matrix_type> oRHS) {
+		RCP<sparse_matrix_type> oRHS, RCP<sparse_matrix_type> oM_all) {
 	using namespace Intrepid;
 	using Teuchos::ArrayView;
 	using Teuchos::arrayView;
@@ -1910,6 +1979,8 @@ void Pde::volume_integrals(RCP<sparse_matrix_type> oLHS,
 //						}
 						M->sumIntoGlobalValues(globalRow, globalColAV,
 								arrayView<ST> (&operatorMassMatrixContribution, 1));
+						oM_all->sumIntoGlobalValues(globalRow, globalColAV,
+								arrayView<ST> (&operatorMassMatrixContribution, 1));
 						oLHS->sumIntoGlobalValues (globalRow, globalColAV,
 								arrayView<ST> (&operatorMatrixContributionLHS, 1));
 						oRHS->sumIntoGlobalValues (globalRow, globalColAV,
@@ -2028,6 +2099,10 @@ RCP<Pde::vector_type> Pde::get_boundary_node_values() {
 	return boundary_node_values;
 }
 
+RCP<Pde::vector_type> Pde::get_boundary_node_areas() {
+	return boundary_node_areas;
+}
+
 RCP<Pde::multivector_type> Pde::get_boundary_node_positions() {
 	return boundary_node_positions;
 }
@@ -2041,6 +2116,23 @@ int Pde::get_total_number_of_particles() {
 			rcp (new vector_type (interiorSubMapG, true));
 	M->apply(*interior_node_values.getConst(),*M_times_concentrations);
 	return TPETRA_REDUCE1(M_times_concentrations, M_times_concentrations, ZeroOp<double>, std::plus<double>());
+}
+
+void Pde::calculate_volumes_and_areas() {
+	using Tpetra::RTI::reduce;
+	using Tpetra::RTI::ZeroOp;
+	using Tpetra::RTI::reductionGlob;
+
+	RCP<vector_type> ones =
+				rcp (new vector_type (globalMapG, false));
+	ones->putScalar(1.0);
+
+
+	M_all->apply(*ones.getConst(),*volumes_and_areas);
+	std::cout << "total volume is " <<
+			TPETRA_REDUCE1(interior_node_volumes, interior_node_volumes, ZeroOp<double>, std::plus<double>()) << std::endl;
+	std::cout << "total boundary area is " <<
+			TPETRA_REDUCE1(boundary_node_areas, boundary_node_areas, ZeroOp<double>, std::plus<double>()) << std::endl;
 }
 
 void Pde::rescale(double s) {
@@ -2135,7 +2227,7 @@ void Pde::create_stk_grid() {
 }
 
 void Pde::boundary_integrals2(RCP<sparse_matrix_type> oLHS,
-		RCP<sparse_matrix_type> oRHS) {
+		RCP<sparse_matrix_type> oRHS, RCP<sparse_matrix_type> oM_all) {
 	using namespace Intrepid;
 	using Teuchos::ArrayView;
 	using Teuchos::arrayView;
@@ -2251,15 +2343,21 @@ void Pde::boundary_integrals2(RCP<sparse_matrix_type> oLHS,
 					const int sideNode2 = cellType.getNodeMap(2,iface,cell_pt);
 					const LO local_cell_pt_id = elem_to_node(ielem,sideNode2);
 					GO global_cell_pt_id = as<GO> (global_node_ids[local_cell_pt_id]);
+					GO global_face_pt_id2 = as<GO> (node_on_boundary_id[local_cell_pt_id]);
 
 					ArrayView<GO> global_cell_pt_AV = arrayView<GO> (&global_cell_pt_id, 1);
+					ArrayView<GO> global_face_pt_AV2 = arrayView<GO> (&global_face_pt_id2, 1);
+
+					ST operatorMassMatrixContributionLHS =
+							worksetWeakBC (0, face_pt, cell_pt);
 					ST operatorMatrixContributionLHS =
 							omega*worksetWeakBC (0, face_pt, cell_pt);
 					ST operatorMatrixContributionRHS =
 							(1.0-omega)*worksetWeakBC (0, face_pt, cell_pt);
 					ST operatorMatrixContributionRHS_neg = -operatorMatrixContributionRHS;
 
-
+					oM_all->sumIntoGlobalValues (global_face_pt_id, global_face_pt_AV2,
+							arrayView<ST> (&operatorMatrixContributionLHS, 1));
 
 					oLHS->sumIntoGlobalValues (global_cell_pt_id, global_face_pt_AV,
 							arrayView<ST> (&operatorMatrixContributionLHS, 1));
