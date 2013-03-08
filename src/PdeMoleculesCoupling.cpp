@@ -49,6 +49,9 @@ int find_first(const double to_find, const std::vector<double>& to_find_in) {
 
 int PdeMoleculesCoupling::generate_new_molecules(MoleculesSimple& mols,
 		Pde& pde, const double dt, const double dA, const double D) {
+	Teuchos::RCP<Teuchos::Time> timer =
+				Teuchos::TimeMonitor::getNewTimer ("Generate New Molecules");
+	Teuchos::TimeMonitor timerMon (*timer);
 	RCP<Pde::vector_type> boundary_node_values = pde.get_boundary_node_values();
 	RCP<Pde::vector_type> boundary_node_areas = pde.get_boundary_node_areas();
 
@@ -112,7 +115,9 @@ struct equal_one {
 
 void PdeMoleculesCoupling::add_molecules_to_pde_test1(MoleculesSimple& mols,
 		Pde& pde, const double overlap) {
-
+	Teuchos::RCP<Teuchos::Time> timer =
+					Teuchos::TimeMonitor::getNewTimer ("Add Molecules To Pde");
+	Teuchos::TimeMonitor timerMon (*timer);
 	const std::vector<double>& x = mols.get_x();
 	const std::vector<double>& y = mols.get_y();
 	const std::vector<double>& z = mols.get_z();
@@ -148,7 +153,9 @@ void PdeMoleculesCoupling::add_molecules_to_pde_test1(MoleculesSimple& mols,
 
 void PdeMoleculesCoupling::add_molecules_to_pde_test2(MoleculesSimple& mols,
 		Pde& pde, const double overlap) {
-
+	Teuchos::RCP<Teuchos::Time> timer =
+			Teuchos::TimeMonitor::getNewTimer ("Add Molecules To Pde");
+	Teuchos::TimeMonitor timerMon (*timer);
 	const std::vector<double>& x = mols.get_x();
 	const std::vector<double>& y = mols.get_y();
 	const std::vector<double>& z = mols.get_z();

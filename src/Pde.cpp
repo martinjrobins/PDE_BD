@@ -995,7 +995,9 @@ void Pde::build_maps_and_create_matrices() {
 
 void Pde::integrate(const ST requested_dt) {
 
-
+	Teuchos::RCP<Teuchos::Time> timer =
+			Teuchos::TimeMonitor::getNewTimer ("Total Pde Integration");
+	Teuchos::TimeMonitor timerMon (*timer);
 	const int iterations = int(requested_dt/dt + 0.5);
 	const double actual_dt = iterations*dt;
 	std::cout << "integrating for "<<actual_dt<<" seconds (" << iterations << " iterations)" << std::endl;
@@ -1016,6 +1018,7 @@ void Pde::integrate(const ST requested_dt) {
 			solve();
 		}
 	}
+
 }
 
 

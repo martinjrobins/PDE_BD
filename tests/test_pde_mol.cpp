@@ -32,6 +32,7 @@ int main(int argc, char **argv) {
 
 	Mpi::init(argc,argv);
 	const double dt = 0.001;
+	const double max_t = 5.0;
 	const double dt_out = dt;
 	const double dx = 0.1;
 	const double D = 1.0;
@@ -44,7 +45,7 @@ int main(int argc, char **argv) {
 		p.add_particle(0,0,0);
 	}
 	std::vector<double> pde_sizes,mol_sizes,t;
-	for (int i = 0; i < 1.0/dt_out; ++i) {
+	for (int i = 0; i < max_t/dt_out; ++i) {
 		std::stringstream filename_grid,filename_boundary,filename_molecules;
 		filename_grid <<format("test%05d.pvtu")%i;
 		filename_boundary<<format("testBoundary%05d.pvtu")%i;
@@ -55,9 +56,20 @@ int main(int argc, char **argv) {
 		Io::write_points(filename_molecules.str(),m.get_x(),m.get_y(),m.get_z());
 
 		int Npde = p.get_total_number_of_particles();
-		int Nmol = m.size();
+
+		int Nmol_pde = 0;
+		int Nmol = 0;
+
+		std::for_each(m.get_x().begin(),m.get_x().end(), [&](double x) {
+			if (x < 1.0) {
+				Nmol_pde++;
+			} else  {
+				Nmol++;
+			}
+		});
+
 		t.push_back(i*dt_out);
-		pde_sizes.push_back(Npde);
+		pde_sizes.push_back(Npde+Nmol_pde);
 		mol_sizes.push_back(Nmol);
 
 		std::cout << *(pde_sizes.end()-1) << " molecules in pde subdomain and "<<

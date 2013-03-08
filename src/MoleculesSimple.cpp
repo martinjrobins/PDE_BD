@@ -27,6 +27,8 @@
 #include <algorithm>
 #include <time.h>
 
+#include <Teuchos_TimeMonitor.hpp>
+
 #include <trng/normal_dist.hpp>
 
 MoleculesSimple::MoleculesSimple() {
@@ -61,6 +63,9 @@ void MoleculesSimple::remove_particles(std::vector<int>& to_delete) {
 
 
 void MoleculesSimple::diffuse(const double dt, const double D) {
+	Teuchos::RCP<Teuchos::Time> timer =
+			Teuchos::TimeMonitor::getNewTimer ("Mol Diffusion");
+	Teuchos::TimeMonitor timerMon (*timer);
 	trng::normal_dist<double> N(0,1);
 	const double rms_step = sqrt(2.0*D*dt);
 
@@ -89,6 +94,9 @@ private:
 void MoleculesSimple::reflective_boundaries(const double xmin,
 		const double xmax, const double ymin, const double ymax,
 		const double zmin, const double zmax) {
+	Teuchos::RCP<Teuchos::Time> timer =
+				Teuchos::TimeMonitor::getNewTimer ("Mol Reflective Boundaries");
+		Teuchos::TimeMonitor timerMon (*timer);
 
 	std::transform(x.begin(), x.end(), x.begin(), reflect(xmin,xmax));
 	std::transform(y.begin(), y.end(), y.begin(), reflect(ymin,ymax));
