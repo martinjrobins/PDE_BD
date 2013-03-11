@@ -16,6 +16,9 @@ target_link_libraries (test_pde_mol pdb)
 add_executable (test_pde_mol2 test_pde_mol2.cpp) 
 target_link_libraries (test_pde_mol2 pdb)
 
+add_executable (test_pde_mol3 test_pde_mol3.cpp) 
+target_link_libraries (test_pde_mol3 pdb)
+
 enable_testing()
 add_test(init ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_init)
 add_test(pde_constructor ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_pde_constructor)

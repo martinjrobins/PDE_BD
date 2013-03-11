@@ -56,6 +56,8 @@ Pde::Pde(const ST dt, const ST dx,const int test_no):dt(dt),dirac_width(dx) {
 		//meshInput = makeMeshInputSphere((ro-ri)/dx, 0.5*3.14*0.5*(ro+ri)/dx);
 		meshInput = makeMeshInputCylinder((ro-ri)/dx,0.5*3.14*0.5*(ro+ri)/dx,1.0/dx);
 		std::cout << meshInput;
+	} else if (test_no == 3) {
+		meshInput = makeMeshInputFullDomain(2.0/dx, 1.0/dx, 1.0/dx);
 	}
 
 	setup_pamgen_mesh(meshInput);
@@ -1336,6 +1338,28 @@ std::string Pde::makeMeshInput (const int nx, const int ny, const int nz) {
      << "\t\tsideset, ihi, 4" << endl
 //     << "\t\tsideset, jhi, 5" << endl
 //     << "\t\tsideset, khi, 6" << endl
+     << "\tend" << endl
+     << "end";
+  return os.str ();
+}
+
+std::string Pde::makeMeshInputFullDomain (const int nx, const int ny, const int nz) {
+  using std::endl;
+  std::ostringstream os;
+
+  TEUCHOS_TEST_FOR_EXCEPTION( nx <= 0 || ny <= 0 || nz <= 0,
+    std::invalid_argument, "nx, ny, and nz must all be positive.");
+
+  os << "mesh" << endl
+     << "\trectilinear" << endl
+     << "\t\tnx = " << nx << endl
+     << "\t\tny = " << ny << endl
+     << "\t\tnz = " << nz << endl
+     << "\t\tbx = 1" << endl
+     << "\t\tby = 1" << endl
+     << "\t\tbz = 1" << endl
+     << "\t\tgmin = 0 0 0" << endl
+     << "\t\tgmax = 2 1 1" << endl
      << "\tend" << endl
      << "end";
   return os.str ();

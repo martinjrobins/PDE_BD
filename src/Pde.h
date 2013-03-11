@@ -231,6 +231,7 @@ private:
 	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 	void solve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
+	std::string makeMeshInputFullDomain (const int nx, const int ny, const int nz);
 	std::string makeMeshInputSphere (const int nr, const int ntheta);
 	std::string makeMeshInputRadialTrisection (const int nr, const int ntheta, const int nz);
 	std::string makeMeshInputCylinder (const int nr, const int ntheta, const int nz);

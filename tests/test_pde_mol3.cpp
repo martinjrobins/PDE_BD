@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
 	const double D = 1.0;
 	const double overlap = 0.1;
 	const double dx2 = dx*dx;
-	Pde p(dt,dx,1);
+	Pde p(dt,dx,3);
 	MoleculesSimple m;
 	PdeMoleculesCoupling c;
 	for (int i = 0; i < 1000; ++i) {
@@ -48,14 +48,6 @@ int main(int argc, char **argv) {
 	}
 	std::vector<double> pde_sizes,mol_sizes,t,patch_sizes;
 	for (int i = 0; i < max_t/dt_out; ++i) {
-		std::stringstream filename_grid,filename_boundary,filename_molecules;
-		filename_grid <<format("test%05d.pvtu")%i;
-		filename_boundary<<format("testBoundary%05d.pvtu")%i;
-		filename_molecules<<format("testMolecules%05d.pvtu")%i;
-
-		//Io::write_grid(filename_grid.str(),p.get_grid());
-		//Io::write_grid(filename_boundary.str(),p.get_boundary());
-		//Io::write_points(filename_molecules.str(),m.get_x(),m.get_y(),m.get_z());
 
 		int Npde = p.get_total_number_of_particles();
 
@@ -95,10 +87,10 @@ int main(int argc, char **argv) {
 		const double actual_dt = iterations*dt;
 		for (int j = 0; j < iterations; ++j) {
 			p.integrate(dt);
-			c.generate_new_molecules(m, p, dt, dx2, D);
-			m.diffuse(dt,D);
-			m.reflective_boundaries(0,2,0,1,0,1);
-			c.add_molecules_to_pde_test1(m, p, overlap);
+			//c.generate_new_molecules(m, p, dt, dx2, D);
+			//m.diffuse(dt,D);
+			//m.reflective_boundaries(0,2,0,1,0,1);
+			//c.add_molecules_to_pde_test1(m, p, overlap);
 		}
 	}
 	std::vector<std::vector<double>* > columns;
@@ -106,7 +98,7 @@ int main(int argc, char **argv) {
 	columns.push_back(&pde_sizes);
 	columns.push_back(&mol_sizes);
 	columns.push_back(&patch_sizes);
-	Io::write_column_vectors("number_of_molecules","#time num_pde num_particle num_patch",columns);
+	Io::write_column_vectors("number_of_moleculesThree","#time num_pde num_particle num_patch",columns);
 }
 
 
