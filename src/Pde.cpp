@@ -24,7 +24,7 @@
 
 #include "Pde.h"
 #include <iostream>
-#include "TrilinosSolve.h"
+
 #include "Log.h"
 #include "Constants.h"
 #include "MyMpi.h"
@@ -39,14 +39,18 @@
 #include <boost/tuple/tuple.hpp>
 
 
-Pde::Pde(const ST dt, const ST dx,const int test_no):dt(dt),dirac_width(dx) {
+Pde::Pde(const ST dt, const ST dx,const int test_no,const int numThreads):dt(dt),dirac_width(dx) {
+	typedef Teuchos::ScalarTraits<ST> STS;
+	typedef STS::magnitudeType MT;
+	typedef Teuchos::ScalarTraits<MT> STM;
+
 	my_rank = Mpi::mpiSession->getRank();
 	num_procs = Mpi::mpiSession->getNProc();
 
 	// Get the default communicator and Kokkos Node instance
 	comm = Tpetra::DefaultPlatform::getDefaultPlatform ().getComm ();
 	node = Tpetra::DefaultPlatform::getDefaultPlatform ().getNode ();
-
+	node->init(numThreads);
 
 	std::string meshInput;
 	if (test_no == 1) {
@@ -66,6 +70,10 @@ Pde::Pde(const ST dt, const ST dx,const int test_no):dt(dt),dirac_width(dx) {
 	create_vtk_grid();
 	make_LHS_and_RHS();
 	calculate_volumes_and_areas();
+	const MT tol = STM::squareroot (STM::eps ());
+	const int maxNumIters = 1000;
+	solver = TrilinosRD::getSolver<ST, multivector_type, operator_type>(tol,maxNumIters,X, LHS,
+			B, Teuchos::null, Teuchos::null);
 }
 
 void Pde::add_particle(const ST x, const ST y, const ST z) {
@@ -960,6 +968,7 @@ void Pde::build_maps_and_create_matrices() {
 
 	//F = rcp (new vector_type (globalMapG));
 	X = rcp (new vector_type (globalMapG));
+	B = rcp (new vector_type (globalMapG));
 	volumes_and_areas = rcp (new vector_type (globalMapG));
 
 	// initialise source term and concentration to zero
@@ -1293,24 +1302,43 @@ void Pde::solve() {
 	bool converged = false;
 	int numItersPerformed = 0;
 	const MT tol = STM::squareroot (STM::eps ());
-	const int maxNumIters = 100;
-	RCP<vector_type> rhsDir =
-			rcp (new vector_type (globalMapG, true));
-	RHS->apply(*X.getConst(),*rhsDir);
+	const int maxNumIters = 1000;
+	RHS->apply(*X.getConst(),*B);
 //	std::cout << "rhs vector = " << std::endl;
 //	rhsDir->print(std::cout);
 //	Tpetra::MatrixMarket::Writer<vector_type>::writeDense (std::cout, rhsDir);
 	TrilinosRD::solveWithBelos<ST, multivector_type, operator_type>(
 			converged, numItersPerformed, tol, maxNumIters,
 			X, LHS,
-			rhsDir, Teuchos::null, Teuchos::null
+			B, Teuchos::null, Teuchos::null
 			);
-
+	if (converged) {
+		std::cout << "Simulated converged after "<<numItersPerformed<<" iterations."<<std::endl;
+	} else {
+		std::cout << "Simulated NOT converged after "<<numItersPerformed<<" iterations."<<std::endl;
+	}
 	// Summarize timings
 //	Teuchos::RCP<Teuchos::ParameterList> reportParams = parameterList ("TimeMonitor::report");
 //	reportParams->set ("Report format", std::string ("YAML"));
 //	reportParams->set ("writeGlobalStats", true);
 //	Teuchos::TimeMonitor::report(std::cout, reportParams);
+}
+
+void Pde::recycledSolve() {
+
+	bool converged = false;
+	int numItersPerformed = 0;
+	RHS->apply(*X.getConst(),*B);
+
+	TrilinosRD::solveWithBelos<ST, multivector_type, operator_type>(
+			converged, numItersPerformed,
+			solver
+			);
+	if (converged) {
+		std::cout << "Simulated converged after "<<numItersPerformed<<" iterations."<<std::endl;
+	} else {
+		std::cout << "Simulated NOT converged after "<<numItersPerformed<<" iterations."<<std::endl;
+	}
 }
 
 std::string Pde::makeMeshInput (const int nx, const int ny, const int nz) {

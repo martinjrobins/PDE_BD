@@ -59,6 +59,7 @@
 
 // Belos includes
 #include <BelosTpetraAdapter.hpp>
+#include "TrilinosSolve.h"
 
 // vtk includes
 #include "vtkUnstructuredGrid.h"
@@ -87,7 +88,8 @@ public:
 	typedef double ST;
 	typedef int    LO;
 	typedef int    GO;
-	typedef Tpetra::DefaultPlatform::DefaultPlatformType::NodeType  Node;
+	//typedef Tpetra::DefaultPlatform::DefaultPlatformType::NodeType  Node;
+	typedef Kokkos::TPINode Node;
 	typedef Tpetra::CrsMatrix<ST, LO, GO, Node>    sparse_matrix_type;
 	typedef Tpetra::Operator<ST, LO, GO, Node>     operator_type;
 	typedef Tpetra::MultiVector<ST, LO, GO, Node>  multivector_type;
@@ -99,7 +101,7 @@ public:
 	typedef Tpetra::CrsGraph<LO, GO, Node>    sparse_graph_type;
 
 
-	Pde(const ST dt, const ST dx, const int test_no=1);
+	Pde(const ST dt, const ST dx, const int test_no=1, const int numThreads=1);
 	~Pde() {
 		delete [] node_is_owned;
 		node_is_owned = NULL;
@@ -151,12 +153,17 @@ private:
 	 * Matricies
 	 */
 	RCP<sparse_matrix_type> LHS,RHS,M,M_all;
-	RCP<vector_type> X,volumes_and_areas;
+	RCP<vector_type> X,B,volumes_and_areas;
 	RCP<vector_type> boundary_node_values;
 	RCP<vector_type> interior_node_values;
 	RCP<vector_type> interior_node_volumes;
 	RCP<vector_type> boundary_node_areas;
 	RCP<multivector_type> boundary_node_positions;
+
+	/*
+	 * solver
+	 */
+	RCP<Belos::SolverManager<ST, multivector_type, operator_type> > solver;
 
 
 	/*
@@ -230,6 +237,7 @@ private:
 	void volume_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS, RCP<sparse_matrix_type> oM_all);
 	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 	void solve();
+	void recycledSolve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
 	std::string makeMeshInputFullDomain (const int nx, const int ny, const int nz);
 	std::string makeMeshInputSphere (const int nr, const int ntheta);

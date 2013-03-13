@@ -33,7 +33,91 @@
 
 
 namespace TrilinosRD {
+using Teuchos::RCP;
+using Teuchos::rcp;
 
+template<class ST, class MV, class OP>
+RCP<Belos::SolverManager<ST, MV, OP> >
+getSolver (    const typename Teuchos::ScalarTraits<ST>::magnitudeType& tol,
+				const int maxNumIters,
+				const Teuchos::RCP<MV>& X,
+                const Teuchos::RCP<const OP>& A,
+                const Teuchos::RCP<const MV>& B,
+                const Teuchos::RCP<const OP>& M_left,
+                const Teuchos::RCP<const OP>& M_right)
+{
+  using Teuchos::ParameterList;
+  using Teuchos::parameterList;
+  using Teuchos::RCP;
+  using Teuchos::rcp;
+  typedef Belos::LinearProblem<ST, MV, OP > problem_type;
+  typedef Belos::PseudoBlockCGSolMgr<ST, MV, OP> solver_type;
+  typedef Belos::MultiVecTraits<ST, MV> MVT;
+
+
+  TEUCHOS_TEST_FOR_EXCEPTION(A.is_null () || X.is_null () || B.is_null (),
+    std::invalid_argument, "getSolver: The A, X, and B arguments must all "
+    "be nonnull.");
+  const int numColsB = MVT::GetNumberVecs (*B);
+  const int numColsX = MVT::GetNumberVecs (*X);
+  TEUCHOS_TEST_FOR_EXCEPTION(numColsB != numColsX, std::invalid_argument,
+    "getSolver: X and B must have the same number of columns.  X has "
+    << numColsX << " columns, but B has " << numColsB << " columns.");
+
+  RCP<ParameterList> belosParams = parameterList ();
+  belosParams->set ("Block Size", numColsB);
+  belosParams->set ("Maximum Iterations", maxNumIters);
+  belosParams->set ("Convergence Tolerance", tol);
+
+  RCP<problem_type> problem = rcp (new problem_type (A, X, B));
+  if (! M_left.is_null ()) {
+    problem->setLeftPrec (M_left);
+  }
+  if (! M_right.is_null ()) {
+    problem->setRightPrec (M_right);
+  }
+  const bool set = problem->setProblem ();
+  TEUCHOS_TEST_FOR_EXCEPTION(! set, std::runtime_error, "solveWithBelos: The "
+    "Belos::LinearProblem's setProblem() method returned false.  This probably "
+    "indicates that there is something wrong with A, X, or B.");
+
+  // Create the GMRES solver.
+  Belos::SolverFactory<ST, MV, OP> factory;
+  RCP<Belos::SolverManager<ST, MV, OP> > solver =
+		  factory.create ("GCRODR", belosParams);
+  // Tell the solver what problem you want to solve.
+  solver->setProblem (problem);
+
+  return solver;
+}
+
+template<class ST, class MV, class OP>
+void
+solveWithBelos (bool& converged,
+                int& numItersPerformed,
+
+                RCP<Belos::SolverManager<ST, MV, OP> > solver
+                )
+{
+  using Teuchos::ParameterList;
+  using Teuchos::parameterList;
+  using Teuchos::RCP;
+  using Teuchos::rcp;
+  typedef Belos::LinearProblem<ST, MV, OP > problem_type;
+  typedef Belos::PseudoBlockCGSolMgr<ST, MV, OP> solver_type;
+  typedef Belos::MultiVecTraits<ST, MV> MVT;
+
+  // Set these in advance, so that if the Belos solver throws an
+  // exception for some reason, these will have sensible values.
+  converged = false;
+  numItersPerformed = 0;
+
+  solver->reset(Belos::Problem);
+  Belos::ReturnType result = solver->solve ();
+
+  converged = (result == Belos::Converged);
+  numItersPerformed = solver->getNumIters ();
+}
 
 template<class ST, class MV, class OP>
 void
