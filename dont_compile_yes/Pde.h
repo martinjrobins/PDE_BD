@@ -22,8 +22,8 @@
  *      Author: mrobins
  */
 
-#ifndef PDE2_H_
-#define PDE2_H_
+#ifndef PDE_H_
+#define PDE_H_
 
 #include "Tpetra_DefaultPlatform.hpp"
 #include "Tpetra_CrsMatrix.hpp"
@@ -78,20 +78,10 @@
 #include "stk_mesh/base/GetBuckets.hpp"
 #include "stk_mesh/fem/CreateAdjacentEntities.hpp"
 
-// Bring in all of the operator/vector ANA client support software
-#include "Thyra_OperatorVectorClientSupport.hpp"
-#include "Thyra_TpetraThyraWrappers.hpp"
-#include "Thyra_LinearOpWithSolveFactoryHelpers.hpp"
-#include "Thyra_LinearSolverBuilderBase.hpp"
-#include "Thyra_PreconditionerFactoryHelpers.hpp"
-
-#include "Stratimikos_DefaultLinearSolverBuilder.hpp"
-
-
 using Teuchos::RCP;
 using Teuchos::rcp;
 
-class Pde2 {
+class Pde {
 
 public:
 
@@ -103,7 +93,6 @@ public:
 	typedef Tpetra::CrsMatrix<ST, LO, GO, Node>    sparse_matrix_type;
 	typedef Tpetra::Operator<ST, LO, GO, Node>     operator_type;
 	typedef Tpetra::MultiVector<ST, LO, GO, Node>  multivector_type;
-
 	typedef Tpetra::Vector<ST, LO, GO, Node>       vector_type;
 
 	typedef Tpetra::Map<LO, GO, Node>         map_type;
@@ -112,8 +101,8 @@ public:
 	typedef Tpetra::CrsGraph<LO, GO, Node>    sparse_graph_type;
 
 
-	Pde2(const ST dt, const ST dx, const int test_no=1, const int numThreads=1);
-	~Pde2() {
+	Pde(const ST dt, const ST dx, const int test_no=1, const int numThreads=1);
+	~Pde() {
 		delete [] node_is_owned;
 		node_is_owned = NULL;
 		// Get a summary from the time monitor.
@@ -145,25 +134,36 @@ private:
 	RCP<const Teuchos::Comm<int> > comm;
 	RCP<Node> node;
 
+	/*
+	 * Maps, exporters etc.
+	 */
+	RCP<sparse_graph_type> overlappedGraph;
+	RCP<sparse_graph_type> ownedGraph;
+	RCP<sparse_graph_type> ownedInteriorGraph;
+	RCP<sparse_graph_type> overlappedMassGraph;
+	RCP<sparse_graph_type> ownedMassGraph;
+
+	RCP<const map_type> boundarySubMapG;
+	RCP<const map_type> interiorSubMapG;
+	RCP<const map_type> globalMapG;
+	RCP<const map_type> overlappedMapG;
+	RCP<const export_type> exporter;
 
 	/*
 	 * Matricies
 	 */
-	RCP<sparse_matrix_type> K, Mi, B, Mb;
-	RCP<vector_type> U,Lambda,U_Lambda,U_Lambda_rhs;
-
+	RCP<sparse_matrix_type> LHS,RHS,M,M_all;
+	RCP<vector_type> X,B,volumes_and_areas;
+	RCP<vector_type> boundary_node_values;
+	RCP<vector_type> interior_node_values;
 	RCP<vector_type> interior_node_volumes;
 	RCP<vector_type> boundary_node_areas;
 	RCP<multivector_type> boundary_node_positions;
 
 	/*
-	 * composed ops
+	 * solver
 	 */
-	RCP<const Thyra::LinearOpWithSolveFactoryBase<ST> > lowsFactory;
-	RCP<Thyra::LinearOpWithSolveBase<ST> > LHS;
-	RCP<const Thyra::LinearOpBase<ST> > RHS;
-	RCP<Thyra::VectorBase<ST> > X;
-	RCP<Thyra::VectorBase<ST> > Y;
+	RCP<Belos::SolverManager<ST, multivector_type, operator_type> > solver;
 
 
 	/*
@@ -185,6 +185,9 @@ private:
 
 	Intrepid::FieldContainer<int> boundary_face_to_elem;
 	Intrepid::FieldContainer<int> boundary_face_to_ordinal;
+	// nodeIsOwned must be a raw array, because std::vector<T> (and
+	// therefore Teuchos::Array<T>) has a specialization for T = bool
+	// that messes up the pointer type.
 	bool* node_is_owned;
 	shards::CellTopology cellType;
 	shards::CellTopology faceType;
@@ -227,12 +230,14 @@ private:
 	void setup_pamgen_mesh(const std::string& meshInput);
 	void create_cubature_and_basis();
 	void build_maps_and_create_matrices();
-	void fillMatricies();
-	void compose_LHS_and_RHS();
+	void make_LHS_and_RHS();
 	void calculate_volumes_and_areas();
-	void boundary_integrals();
-	void volume_integrals();
+	void boundary_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS);
+	void boundary_integrals2(RCP<sparse_matrix_type> oLHS,RCP<sparse_matrix_type> oRHS, RCP<sparse_matrix_type> oM_all);
+	void volume_integrals(RCP<sparse_matrix_type> oLHS, RCP<sparse_matrix_type> oRHS, RCP<sparse_matrix_type> oM_all);
+	void zero_out_rows_and_columns(RCP<sparse_matrix_type> matrix);
 	void solve();
+	void recycledSolve();
 	std::string makeMeshInput (const int nx, const int ny, const int nz);
 	std::string makeMeshInputFullDomain (const int nx, const int ny, const int nz);
 	std::string makeMeshInputSphere (const int nr, const int ntheta);
@@ -254,4 +259,4 @@ private:
 };
 
 
-#endif /* PDE2_H_ */
+#endif /* PDE_H_ */

@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
 	const double D = 1.0;
 	const double overlap = 0.1;
 	const double dx2 = dx*dx;
-	Pde p(dt,dx,1,4);
+	Pde p(dt,dx,1,1);
 	MoleculesSimple m;
 	PdeMoleculesCoupling c;
 	for (int i = 0; i < 1000; ++i) {
@@ -52,10 +52,11 @@ int main(int argc, char **argv) {
 		filename_grid <<format("test%05d.pvtu")%i;
 		filename_boundary<<format("testBoundary%05d.pvtu")%i;
 		filename_molecules<<format("testMolecules%05d.pvtu")%i;
-
-		//Io::write_grid(filename_grid.str(),p.get_grid());
-		//Io::write_grid(filename_boundary.str(),p.get_boundary());
-		//Io::write_points(filename_molecules.str(),m.get_x(),m.get_y(),m.get_z());
+		if (i < 1000) {
+			Io::write_grid(filename_grid.str(),p.get_grid());
+			Io::write_grid(filename_boundary.str(),p.get_boundary());
+			Io::write_points(filename_molecules.str(),m.get_x(),m.get_y(),m.get_z());
+		}
 
 		int Npde = p.get_total_number_of_particles();
 
