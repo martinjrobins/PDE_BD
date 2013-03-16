@@ -162,6 +162,7 @@ private:
 	RCP<const Thyra::LinearOpWithSolveFactoryBase<ST> > lowsFactory;
 	RCP<Thyra::LinearOpWithSolveBase<ST> > LHS;
 	RCP<const Thyra::LinearOpBase<ST> > RHS;
+	RCP<const Thyra::LinearOpBase<ST> > S;
 	RCP<Thyra::VectorBase<ST> > X;
 	RCP<Thyra::VectorBase<ST> > Y;
 

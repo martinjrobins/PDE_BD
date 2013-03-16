@@ -853,17 +853,37 @@ void Pde::solve() {
 	typedef Teuchos::ScalarTraits<MT> STM;
 
 
-	bool converged = false;
-	int numItersPerformed = 0;
-	const MT tol = STM::squareroot (STM::eps ());
-	const int maxNumIters = 1000;
 	RHS->apply(Thyra::NOTRANS, *X.getConst(), Y.ptr(),1,0);
 
+	//Thyra::SolveStatus<ST>
+	//	    status = LHS->solve(Thyra::NOTRANS, *Y.getConst(), X.ptr());
+
+	RCP<const Thyra::LinearOpBase<ST> > A = dynamic_cast<Thyra::BlockedLinearOpBase>(LHS)->getBlock(0,0);
+	RCP<const Thyra::LinearOpBase<ST> > B = LHS->getBlock(0,1);
+	RCP<const Thyra::LinearOpBase<ST> > C = LHS->getBlock(1,0);
+	RCP<const Thyra::LinearOpBase<ST> > D = LHS->getBlock(1,1);
+	RCP<Thyra::VectorBase<ST> > u = X->getBlock(0);
+	RCP<Thyra::VectorBase<ST> > lambda = X->getBlock(1);
+	RCP<Thyra::VectorBase<ST> > u_rhs = Y->getBlock(0);
+	RCP<Thyra::VectorBase<ST> > lambda_rhs = Y->getBlock(1);
+
+	RCP<const Thyra::LinearOpBase<ST> > C_invA = Thyra::multiply(C,invA);
+	C_invA->apply(Thyra::NOTRANS, *u_rhs.getConst(), lambda_rhs.ptr(),-1,1);  //l_r = l_r - C_invA*u_r
+
+	
 	Thyra::SolveStatus<ST>
-		    status = LHS->solve(Thyra::NOTRANS, *Y.getConst(), X.ptr());
+		    status = S->solve(Thyra::NOTRANS, *lambda_rhs.getConst(), lambda.ptr()); //l = invS*l_r
 
+	std::cout << "S solve: "<< status.message << std::endl;
 
-	std::cout << status.message << std::endl;
+	B->apply(Thyra::NOTRANS, *lambda.getConst(), u_rhs.ptr(),-1,1);      //u_r = u_r - B*lambda
+
+	invA->apply(Thyra::NOTRANS, *u_rhs.getConst(), u.ptr(),1,0);         //u = invA*u_r
+
+	//Thyra::SolveStatus<ST>
+	//	    status = A->solve(Thyra::NOTRANS, *u_rhs.getConst(), u.ptr());
+
+	//std::cout << "S solve: "<< status.message << std::endl;
 }
 
 
@@ -1704,13 +1724,13 @@ void Pde::compose_LHS_and_RHS() {
 	  //std::cout << Teuchos::describe(*RHS,Teuchos::VERB_MEDIUM);
 
 
-	  RCP<const linearOp> invA = inverse<ST>(*lowsFactory,A);
+	  invA = inverse<ST>(*lowsFactory,A);
 
-	  RCP<const linearOp> S = multiply(omegaB,invA,omegaB_t,"S");
+	  S = multiply(omegaB,invA,omegaB_t,"S");
 
 	  RCP<const linearOp> LHS_prec = block2x2(A,zero01,
-			  	  	  	  	  	  	  	  	  	 zero10,S,
-			  	  	  	  	  	  	  	  	  	 "LHS_prec");
+			  	  	  	   zero10,S,
+			  	  	  	   "LHS_prec");
 
 	  //std::cout << Teuchos::describe(*LHS_prec,Teuchos::VERB_MEDIUM);
 
