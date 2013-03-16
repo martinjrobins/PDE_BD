@@ -68,15 +68,15 @@
 #include "vtkHexahedron.h"
 
 // STK includes
-#include "stk_util/parallel/Parallel.hpp"
-#include "stk_mesh/base/FieldData.hpp"
-#include "stk_mesh/base/MetaData.hpp"
-#include "stk_mesh/base/BulkData.hpp"
-#include "stk_mesh/base/Comm.hpp"
-#include "stk_mesh/base/Selector.hpp"
-#include "stk_mesh/base/GetEntities.hpp"
-#include "stk_mesh/base/GetBuckets.hpp"
-#include "stk_mesh/fem/CreateAdjacentEntities.hpp"
+//#include "stk_util/parallel/Parallel.hpp"
+//#include "stk_mesh/base/FieldData.hpp"
+//#include "stk_mesh/base/MetaData.hpp"
+//#include "stk_mesh/base/BulkData.hpp"
+//#include "stk_mesh/base/Comm.hpp"
+//#include "stk_mesh/base/Selector.hpp"
+//#include "stk_mesh/base/GetEntities.hpp"
+//#include "stk_mesh/base/GetBuckets.hpp"
+//#include "stk_mesh/fem/CreateAdjacentEntities.hpp"
 
 // Bring in all of the operator/vector ANA client support software
 #include "Thyra_OperatorVectorClientSupport.hpp"
@@ -163,6 +163,7 @@ private:
 	RCP<Thyra::LinearOpWithSolveBase<ST> > LHS;
 	RCP<const Thyra::LinearOpBase<ST> > RHS;
 	RCP<const Thyra::LinearOpBase<ST> > S;
+	RCP<const Thyra::LinearOpBase<ST> > invA;
 	RCP<Thyra::VectorBase<ST> > X;
 	RCP<Thyra::VectorBase<ST> > Y;
 

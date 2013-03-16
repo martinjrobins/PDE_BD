@@ -857,15 +857,18 @@ void Pde::solve() {
 
 	//Thyra::SolveStatus<ST>
 	//	    status = LHS->solve(Thyra::NOTRANS, *Y.getConst(), X.ptr());
+	Thyra::BlockedLinearOpBase<ST> *LHSp = dynamic_cast<Thyra::BlockedLinearOpBase *> (LHS.getRawPtr());
+	Thyra::ProductVectorBase<ST> *Xp = dynamic_cast<Thyra::ProductVectorBase *> (X.getRawPtr());
+	Thyra::ProductVectorBase<ST> *Yp = dynamic_cast<Thyra::ProductVectorBase *> (Y.getRawPtr());
 
-	RCP<const Thyra::LinearOpBase<ST> > A = dynamic_cast<Thyra::BlockedLinearOpBase>(LHS)->getBlock(0,0);
-	RCP<const Thyra::LinearOpBase<ST> > B = LHS->getBlock(0,1);
-	RCP<const Thyra::LinearOpBase<ST> > C = LHS->getBlock(1,0);
-	RCP<const Thyra::LinearOpBase<ST> > D = LHS->getBlock(1,1);
-	RCP<Thyra::VectorBase<ST> > u = X->getBlock(0);
-	RCP<Thyra::VectorBase<ST> > lambda = X->getBlock(1);
-	RCP<Thyra::VectorBase<ST> > u_rhs = Y->getBlock(0);
-	RCP<Thyra::VectorBase<ST> > lambda_rhs = Y->getBlock(1);
+	RCP<const Thyra::LinearOpBase<ST> > A = LHSp->getBlock(0,0);
+	RCP<const Thyra::LinearOpBase<ST> > B = LHSp->getBlock(0,1);
+	RCP<const Thyra::LinearOpBase<ST> > C = LHSp->getBlock(1,0);
+	RCP<const Thyra::LinearOpBase<ST> > D = LHSp->getBlock(1,1);
+	RCP<Thyra::VectorBase<ST> > u = Xp->getNonconstVectorBlock(0);
+	RCP<Thyra::VectorBase<ST> > lambda = Xp->getNonconstVectorBlock(1);
+	RCP<Thyra::VectorBase<ST> > u_rhs = Yp->getNonconstVectorBlock(0);
+	RCP<Thyra::VectorBase<ST> > lambda_rhs = Yp->getNonconstVectorBlock(1);
 
 	RCP<const Thyra::LinearOpBase<ST> > C_invA = Thyra::multiply(C,invA);
 	C_invA->apply(Thyra::NOTRANS, *u_rhs.getConst(), lambda_rhs.ptr(),-1,1);  //l_r = l_r - C_invA*u_r
