@@ -163,6 +163,8 @@ private:
 	RCP<Thyra::LinearOpWithSolveBase<ST> > LHS;
 	RCP<const Thyra::LinearOpBase<ST> > RHS;
 	RCP<const Thyra::LinearOpBase<ST> > S;
+	RCP<Thyra::LinearOpWithSolveBase<ST> > Sinvertable;
+
 	RCP<const Thyra::LinearOpBase<ST> > invA;
 	RCP<Thyra::VectorBase<ST> > X;
 	RCP<Thyra::VectorBase<ST> > Y;

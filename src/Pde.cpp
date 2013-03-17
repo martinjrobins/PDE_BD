@@ -857,9 +857,9 @@ void Pde::solve() {
 
 	//Thyra::SolveStatus<ST>
 	//	    status = LHS->solve(Thyra::NOTRANS, *Y.getConst(), X.ptr());
-	Thyra::BlockedLinearOpBase<ST> *LHSp = dynamic_cast<Thyra::BlockedLinearOpBase *> (LHS.getRawPtr());
-	Thyra::ProductVectorBase<ST> *Xp = dynamic_cast<Thyra::ProductVectorBase *> (X.getRawPtr());
-	Thyra::ProductVectorBase<ST> *Yp = dynamic_cast<Thyra::ProductVectorBase *> (Y.getRawPtr());
+	Thyra::BlockedLinearOpBase<ST> *LHSp = dynamic_cast<Thyra::BlockedLinearOpBase<ST>*> (LHS.getRawPtr());
+	Thyra::ProductVectorBase<ST> *Xp = dynamic_cast<Thyra::ProductVectorBase<ST>*> (X.getRawPtr());
+	Thyra::ProductVectorBase<ST> *Yp = dynamic_cast<Thyra::ProductVectorBase<ST>*> (Y.getRawPtr());
 
 	RCP<const Thyra::LinearOpBase<ST> > A = LHSp->getBlock(0,0);
 	RCP<const Thyra::LinearOpBase<ST> > B = LHSp->getBlock(0,1);
@@ -870,12 +870,12 @@ void Pde::solve() {
 	RCP<Thyra::VectorBase<ST> > u_rhs = Yp->getNonconstVectorBlock(0);
 	RCP<Thyra::VectorBase<ST> > lambda_rhs = Yp->getNonconstVectorBlock(1);
 
-	RCP<const Thyra::LinearOpBase<ST> > C_invA = Thyra::multiply(C,invA);
+	RCP<const Thyra::LinearOpBase<ST> > C_invA = Thyra::multiply<ST>(C,invA,"C_invA");
 	C_invA->apply(Thyra::NOTRANS, *u_rhs.getConst(), lambda_rhs.ptr(),-1,1);  //l_r = l_r - C_invA*u_r
 
 	
 	Thyra::SolveStatus<ST>
-		    status = S->solve(Thyra::NOTRANS, *lambda_rhs.getConst(), lambda.ptr()); //l = invS*l_r
+		    status = Sinvertable->solve(Thyra::NOTRANS, *lambda_rhs.getConst(), lambda.ptr()); //l = invS*l_r
 
 	std::cout << "S solve: "<< status.message << std::endl;
 
@@ -1730,6 +1730,9 @@ void Pde::compose_LHS_and_RHS() {
 	  invA = inverse<ST>(*lowsFactory,A);
 
 	  S = multiply(omegaB,invA,omegaB_t,"S");
+
+	  Sinvertable = lowsFactory->createOp();
+	  Thyra::initializeOp(*lowsFactory,S,Sinvertable.ptr());
 
 	  RCP<const linearOp> LHS_prec = block2x2(A,zero01,
 			  	  	  	   zero10,S,
